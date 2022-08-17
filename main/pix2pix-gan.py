@@ -10,6 +10,12 @@ import itertools
 import time
 import datetime
 import sys
+#file_path = os.path.realpath(__file__)
+#file_loc = file_path[:-14]
+#sys.path.append(file_loc)
+sys.path.append("/data/lrudden/ML-DiffuseReader/main")
+sys.path.append("/data/lrudden/ML-DiffuseReader/admin")
+from create_dataset import LMDBDataset
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -24,25 +30,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
-parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
-parser.add_argument("--dataset_name", type=str, default="diffuse", help="name of the dataset")
-parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
-parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
-parser.add_argument("--decay_epoch", type=int, default=100, help="epoch from which to start lr decay")
-parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
-parser.add_argument("--img_height", type=int, default=256, help="size of image height")
-parser.add_argument("--img_width", type=int, default=256, help="size of image width")
-parser.add_argument("--channels", type=int, default=3, help="number of image channels")
-parser.add_argument(
-    "--sample_interval", type=int, default=500, help="interval between sampling of images from generators"
-)
-parser.add_argument("--checkpoint_interval", type=int, default=-1, help="interval between model checkpoints")
-opt = parser.parse_args()
-print(opt)
+# PARAMS without needing the flag arguments
+epoch=0
+n_epochs=1
+dataset_name="/home/lrudden/ML-DiffuseReader/dataset"
+batch_size=1
+lr=0.0002
+b1=0.5
+b2=0.999
+decay_epoch=100
+n_cpu=1
+img_height=800
+img_width=800
+channels=3
+rank=0
+
+# locations of training and test data
+file_loc = "/home/lrudden/ML-DiffuseReader"
+training_loc = file_loc + "/dataset/training"
+test_loc = file_loc + "/dataset/test"
 
 # from current directory, create models and images of network
 os.makedirs("images/%s" % opt.dataset_name, exist_ok=True)
@@ -60,55 +66,77 @@ lambda_pixel = 100
 # Calculate output of image discriminator (PatchGAN)
 patch = (1, opt.img_height // 2 ** 4, opt.img_width // 2 ** 4)
 
-# Initialize generator and discriminator
-generator = GeneratorUNet()
-discriminator = Discriminator()
+# Initialize generators and discriminators
+generator_dFF = GeneratorUNet()
+discriminator_dFF = Discriminator()
+generator_SRO = GeneratorUNet()
+discriminator_SRO = Discriminator()
 
 if cuda:
-    generator = generator.cuda()
-    discriminator = discriminator.cuda()
+    generator_dFF = generator_dFF.cuda()
+    discriminator_dFF = discriminator_dFF.cuda()
+    generator_SRO = generator_SRO.cuda()
+    discriminator_SRO = discriminator_SRO.cuda()
     criterion_GAN.cuda()
     criterion_pixelwise.cuda()
 
 # continue from a pre-existing network
 if opt.epoch != 0:
     # Load pretrained models
-    generator.load_state_dict(torch.load("saved_models/%s/generator_%d.pth" % (opt.dataset_name, opt.epoch)))
-    discriminator.load_state_dict(torch.load("saved_models/%s/discriminator_%d.pth" % (opt.dataset_name, opt.epoch)))
+    generator_dFF.load_state_dict(torch.load("saved_models/%s/generator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
+    discriminator_dFF.load_state_dict(torch.load("saved_models/%s/discriminator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
+    generator_SRO.load_state_dict(torch.load("saved_models/%s/generator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
+    discriminator_SRO.load_state_dict(torch.load("saved_models/%s/discriminator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
 else:
     # Initialize weights
-    generator.apply(weights_init_normal)
-    discriminator.apply(weights_init_normal)
+    generator_dFF.apply(weights_init_normal)
+    discriminator_dFF.apply(weights_init_normal)
+    generator_SRO.apply(weights_init_normal)
+    discriminator_SRO.apply(weights_init_normal)
 
 # Optimizers
-optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
-optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
-
-
-
-
+optimizer_G_dFF = torch.optim.Adam(generator_dFF.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_D_dFF = torch.optim.Adam(discriminator_dFF.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_G_SRO = torch.optim.Adam(generator_SRO.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_D_SRO = torch.optim.Adam(discriminator_SRO.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
 #TODO: configure dataloader
 # Configure dataloaders
+#transforms_ = [
+#    transforms.Resize((opt.img_height, opt.img_width), Image.BICUBIC),
+#    transforms.ToTensor(),
+#    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+#]
+# try without resizing first
 transforms_ = [
-    transforms.Resize((opt.img_height, opt.img_width), Image.BICUBIC),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
-dataloader = DataLoader(
-    ImageDataset("../../data/%s" % opt.dataset_name, transforms_=transforms_),
-    batch_size=opt.batch_size,
-    shuffle=True,
-    num_workers=opt.n_cpu,
-)
+dataset_dFF = LMDBDataset(root='/data/lrudden/ML-DiffuseReader/dataset/training/train_lmdb_dFF', 
+                      name='diffuse', train=True, transform=transforms_, is_encoded=False)
 
-val_dataloader = DataLoader(
-    ImageDataset("../../data/%s" % opt.dataset_name, transforms_=transforms_, mode="val"),
-    batch_size=10,
-    shuffle=True,
-    num_workers=1,
-)
+#TODO setup distributed training
+
+train_sampler_dFF = torch.utils.data.distributed.DistributedSampler(dataset_dFF,
+                                                                num_replicas=opt.world_size,
+                                                                rank=rank)
+data_loader_dFF = torch.utils.data.DataLoader(dataset_dFF,
+                                              batch_size=batch_size,
+                                              shuffle=False,
+                                              num_workers=0,
+                                              pin_memory=True,
+                                              sampler=train_sampler_dFF,
+                                              drop_last = True)
+
+
+# validation dataset
+#val_dataloader = DataLoader(
+#    ImageDataset(test_loc, transforms_=transforms_, mode="val"),
+#    batch_size=10,
+#    shuffle=True,
+#    num_workers=1,
+#)
 
 # Tensor type
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -126,6 +154,9 @@ def sample_images(batches_done):
 
 # ----------
 #  Training
+#  We need to train two different images on two different outputs, then multiply those to get the original input
+#  Train 1 at a time first, then after training retrain with multplier loss
+#  You will need to do ablation tests on this if it works
 # ----------
 
 prev_time = time.time()
@@ -215,3 +246,25 @@ for epoch in range(opt.epoch, opt.n_epochs):
         # Save model checkpoints
         torch.save(generator.state_dict(), "saved_models/%s/generator_%d.pth" % (opt.dataset_name, epoch))
         torch.save(discriminator.state_dict(), "saved_models/%s/discriminator_%d.pth" % (opt.dataset_name, epoch))
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
+    parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
+    parser.add_argument("--dataset_name", type=str, default="diffuse", help="name of the dataset")
+    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
+    parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
+    parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
+    parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
+    parser.add_argument("--decay_epoch", type=int, default=100, help="epoch from which to start lr decay")
+    parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
+    parser.add_argument("--img_height", type=int, default=256, help="size of image height")
+    parser.add_argument("--img_width", type=int, default=256, help="size of image width")
+    parser.add_argument("--channels", type=int, default=3, help="number of image channels")
+    parser.add_argument(
+        "--sample_interval", type=int, default=500, help="interval between sampling of images from generators"
+    )
+    parser.add_argument("--checkpoint_interval", type=int, default=-1, help="interval between model checkpoints")
+    opt = parser.parse_args()
