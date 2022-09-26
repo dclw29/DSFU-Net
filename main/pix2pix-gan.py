@@ -14,8 +14,7 @@ import sys
 #file_loc = file_path[:-14]
 #sys.path.append(file_loc)
 sys.path.append("/data/lrudden/ML-DiffuseReader/main")
-sys.path.append("/data/lrudden/ML-DiffuseReader/admin")
-from create_dataset import LMDBDataset
+from prepare_lmdb_input import LMDBDataset
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -40,8 +39,8 @@ b1=0.5
 b2=0.999
 decay_epoch=100
 n_cpu=1
-img_height=800
-img_width=800
+img_height=256
+img_width=256
 channels=3
 rank=0
 

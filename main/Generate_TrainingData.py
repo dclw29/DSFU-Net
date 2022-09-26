@@ -12,7 +12,11 @@ from itertools import combinations, permutations
 import random as rand
 rand.seed()
 
+#TODO: Apply rototranslations to input data (use grid of space in internal coordinates)
+
 ###### Initialise grid to generate data from #####
+
+savefolder = "/home/lrudden/ML-DiffuseReader/dataset/raw_files/"
 
 t0 = time.time()
 print("Creating q-grid")
@@ -79,7 +83,7 @@ for i in range(len(molComb)): # can we do things outside this loop?
     molFormFactor2 = np.zeros((resolution,resolution,resolution)).astype(complex)
     # einsum is way quicker than dot product and we can calculate on mass multiplication
     mol1_matrix = np.exp(-2j * np.pi * np.einsum("ijkl,ol->oijk", hklVec, mol1[:, 1:]))
-    mol2_matrix = np.exp(-2j * np.pi * np.einsum("ijkl,ol->oijk", hklVec, mol2[:, 1:])) #TODO: Check if this could be wrong because of zeros...?
+    mol2_matrix = np.exp(-2j * np.pi * np.einsum("ijkl,ol->oijk", hklVec, mol2[:, 1:])) 
     # create molFormFactor arrays
     for a in range(len(mol1)): # can we use eisum here somehow?
         molFormFactor1 += atomFormFactors[numbers[int(mol1[a,0])]] * mol1_matrix[a]
@@ -103,7 +107,7 @@ for i in range(len(molComb)): # can we do things outside this loop?
     #plt.imshow(dFF[128,:,:])
     #plt.show() 
 
-    np.save(moleculeCode+"_dFF.npy", dFF)
+    np.save(savefolder + moleculeCode+"_dFF.npy", dFF)
     #plt.imshow(dFF[128,:,:])
     #plt.savefig(moleculeCode+"_dFF.png")
     
@@ -123,15 +127,15 @@ for i in range(len(molComb)): # can we do things outside this loop?
             al[i] = 1-(p[i]/(concentrations[c] * M2[c]))      
         
         SRO = 2 * np.sum(al[:,None,None,None] * SRO_cos, axis=0).T + 1
-        np.save(moleculeCode + "_" + str(c) + "_SRO.npy", SRO)
+        np.save(savefolder + moleculeCode + "_" + str(c) + "_SRO.npy", SRO)
         # Image testing
-        plt.imshow(SRO[128,:,:])
-        plt.savefig(moleculeCode+"_"+str(c)+"_SRO.png")
+        #plt.imshow(SRO[128,:,:])
+        #plt.savefig(moleculeCode+"_"+str(c)+"_SRO.png")
 
         scat = dFF*SRO
-        np.save(moleculeCode+"_"+str(c)+"_Scat.npy", scat)
-        plt.imshow(scat[128,:,:])
-        plt.savefig(moleculeCode+"_"+str(c)+"_scat.png")
+        np.save(savefolder + moleculeCode+"_"+str(c)+"_Scat.npy", scat)
+        #plt.imshow(scat[128,:,:])
+        #plt.savefig(moleculeCode+"_"+str(c)+"_scat.png")
         
     ### old ####
     #v = np.asarray([[0,0,1],[1,1,0],[1,0,0],[0,1,1],[0,1,0],[1,0,1],[1,1,1]])
