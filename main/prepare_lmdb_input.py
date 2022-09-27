@@ -9,11 +9,12 @@ import sys, os
 import lmdb
 from PIL import Image
 import pickle
+import torchvision.transforms as transforms
 
 def num_samples(dataset, train):
     if dataset == "scattering":
-        # 1 for testing
-        return 1 if train else 100 # this number is specific to the number of TM examples we have for training
+        # 100 for testing
+        return 100 if train else 200 # this number is specific to the number of TM examples we have for training
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
 
@@ -54,7 +55,7 @@ class LMDBDataset(data.Dataset):
     def __init__(self, root, name='', train=True, transform=None, is_encoded=False):
         self.train = train
         self.name = name
-        self.transform = transform
+        self.transform = transforms.Compose(transform)
         if self.train:
             lmdb_path = os.path.join(root)
         else:
@@ -72,32 +73,19 @@ class LMDBDataset(data.Dataset):
 
             if self.is_encoded:
                 img = Image.open(io.BytesIO(data))
-                img = img.convert('L') # L from RGB to deal with grayscale
+                img = img.convert('RGB') 
             else:
-                #### Original ##
-                #img = np.asarray(data, dtype=np.uint8)
-                # assume data is RGB
-                #size = int(np.sqrt(len(img) / 3))
-                #img = np.reshape(img, (size, size, 3))
-                #img = Image.fromarray(img, mode='RGB')
-
-                ### LSPR ###
                 img = pickle.loads(data)
-                # colour
-                #size = int(np.sqrt(len(img) / 3))
-                #img = np.reshape(img, (size, size, 3))
-                #img = Image.fromarray(img, mode='RGB')
                 img = img.getimage()                
-                # grayscale
-                #size = int(np.sqrt(len(img) / 1))
-                #img = np.reshape(img, (size, size, 1))
-                #img = Image.fromarray(img, mode='L')
-                #img = lmdb_image.get_image()
 
         if self.transform is not None:
-            img = self.transform(img)
+            imgA, imgB = img 
+            image_A = self.transform(imgA)
+            image_B = self.transform(imgB)
+        else:
+            image_A, image_B = img 
 
-        return img
+        return {"A": image_A, "B": image_B}
 
     def __len__(self):
         return num_samples(self.name, self.train)
@@ -109,7 +97,7 @@ class LMDB_Image:
         # Dimensions of image for reconstruction - not really necessary
         # for this dataset, but some datasets may include images of
         # varying sizes
-        #self.channels = image.shape[2]
+        self.channels = image.shape[2]
         self.size = image.shape[:2]
         self.image = image.tobytes()
 
@@ -118,16 +106,16 @@ class LMDB_Image:
     def getimage(self):
 
         image = np.frombuffer(self.image, dtype=np.uint8)
-        image = image.reshape(*self.size)
+        image = image.reshape(self.size + (self.channels,))
         h, w = self.size 
-        image_A = image[:, : int(w / 2)]
-        image_B = image[:, int(w / 2) :]
+        image_A = image[:, : int(w / 2), :]
+        image_B = image[:, int(w / 2) :, :]
         #image_A = image.crop((0, 0, w / 2, h)) # note w/2 here, in other words, target image needs to be on the right
         #image_B = image.crop((w / 2, 0, w, h))  
         image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
         image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
 
-        return {"A": image_A, "B": image_B}
+        return image_A, image_B  
 
 def store_many_lmdb(images, lmdb_dir="/home/lrudden/ML-DiffuseReader/dataset/training/train_lmdb"):
     """ Stores an array of images to LMDB.

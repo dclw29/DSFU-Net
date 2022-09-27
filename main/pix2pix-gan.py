@@ -13,8 +13,10 @@ import sys
 #file_path = os.path.realpath(__file__)
 #file_loc = file_path[:-14]
 #sys.path.append(file_loc)
-sys.path.append("/data/lrudden/ML-DiffuseReader/main")
+sys.path.append("/home/dclw/ML-DiffuseReader/main")
 from prepare_lmdb_input import LMDBDataset
+from argparse import Namespace
+from PIL import Image
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -29,38 +31,68 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
+class LMDB_Image:
+    def __init__(self, image, mode="train"):
+
+        # Dimensions of image for reconstruction - not really necessary
+        # for this dataset, but some datasets may include images of
+        # varying sizes
+        self.channels = image.shape[2]
+        self.size = image.shape[:2]
+        self.image = image.tobytes()
+
+        #TODO need test information also
+
+    def getimage(self):
+
+        image = np.frombuffer(self.image, dtype=np.uint8)
+        image = image.reshape(self.size + (self.channels,))
+        h, w = self.size 
+        image_A = image[:, : int(w / 2), :]
+        image_B = image[:, int(w / 2) :, :]
+        #image_A = image.crop((0, 0, w / 2, h)) # note w/2 here, in other words, target image needs to be on the right
+        #image_B = image.crop((w / 2, 0, w, h))  
+        image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
+        image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
+
+        return image_A, image_B  
+
 # PARAMS without needing the flag arguments
-epoch=0
-n_epochs=1
-dataset_name="/home/lrudden/ML-DiffuseReader/dataset"
-batch_size=1
-lr=0.0002
-b1=0.5
-b2=0.999
-decay_epoch=100
-n_cpu=1
-img_height=256
-img_width=256
-channels=3
-rank=0
+args = {
+        'epoch' : 0,
+        'n_epochs' : 5,
+        'dataset_name' : "/home/dclw/ML-DiffuseReader/dataset/training",
+        'batch_size' : 32,
+        'lr' : 0.0002,
+        'b1' : 0.5,
+        'b2' : 0.999,
+        'decay_epoch' : 100,
+        'n_cpu' : 1,
+        'img_height' : 256,
+        'img_width' : 256,
+        'channels' : 3,
+        'rank' : 0,
+        'world_size' : 1, # world size as in number of ranks overall (number of GPUs)
+        'lambda_pixel' : 100 # Loss weight of L1 pixel-wise loss between translated image and real image
+}
+
+opt = Namespace(**args)
 
 # locations of training and test data
-file_loc = "/home/lrudden/ML-DiffuseReader"
-training_loc = file_loc + "/dataset/training"
+file_loc = "/home/dclw/ML-DiffuseReader"
+training_loc = opt.dataset_name
 test_loc = file_loc + "/dataset/test"
+save_loc = file_loc + "/RUN/saved_models"
 
 # from current directory, create models and images of network
-os.makedirs("images/%s" % opt.dataset_name, exist_ok=True)
-os.makedirs("saved_models/%s" % opt.dataset_name, exist_ok=True)
+os.makedirs(file_loc + "/RUN/images/%s" % opt.dataset_name, exist_ok=True)
+os.makedirs(save_loc + "/%s" % opt.dataset_name, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
 
 # Loss functions
 criterion_GAN = torch.nn.MSELoss()
 criterion_pixelwise = torch.nn.L1Loss()
-
-# Loss weight of L1 pixel-wise loss between translated image and real image
-lambda_pixel = 100
 
 # Calculate output of image discriminator (PatchGAN)
 patch = (1, opt.img_height // 2 ** 4, opt.img_width // 2 ** 4)
@@ -82,10 +114,10 @@ if cuda:
 # continue from a pre-existing network
 if opt.epoch != 0:
     # Load pretrained models
-    generator_dFF.load_state_dict(torch.load("saved_models/%s/generator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
-    discriminator_dFF.load_state_dict(torch.load("saved_models/%s/discriminator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
-    generator_SRO.load_state_dict(torch.load("saved_models/%s/generator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
-    discriminator_SRO.load_state_dict(torch.load("saved_models/%s/discriminator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
+    generator_dFF.load_state_dict(torch.load(save_loc + "/%s/generator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
+    discriminator_dFF.load_state_dict(torch.load(save_loc + "/%s/discriminator_dFF_%d.pth" % (opt.dataset_name, opt.epoch)))
+    generator_SRO.load_state_dict(torch.load(save_loc + "/%s/generator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
+    discriminator_SRO.load_state_dict(torch.load(save_loc + "/%s/discriminator_SRO_%d.pth" % (opt.dataset_name, opt.epoch)))
 else:
     # Initialize weights
     generator_dFF.apply(weights_init_normal)
@@ -112,22 +144,33 @@ transforms_ = [
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
-dataset_dFF = LMDBDataset(root='/data/lrudden/ML-DiffuseReader/dataset/training/train_lmdb_dFF', 
-                      name='diffuse', train=True, transform=transforms_, is_encoded=False)
-
+dataset_dFF = LMDBDataset(root=training_loc + '/train_lmdb_dFF', 
+                      name='scattering', train=True, transform=transforms_, is_encoded=False)
 #TODO setup distributed training
-
 train_sampler_dFF = torch.utils.data.distributed.DistributedSampler(dataset_dFF,
                                                                 num_replicas=opt.world_size,
-                                                                rank=rank)
+                                                                rank=opt.rank)
 data_loader_dFF = torch.utils.data.DataLoader(dataset_dFF,
-                                              batch_size=batch_size,
+                                              batch_size=opt.batch_size,
                                               shuffle=False,
-                                              num_workers=0,
+                                              num_workers=opt.n_cpu,
                                               pin_memory=True,
                                               sampler=train_sampler_dFF,
                                               drop_last = True)
 
+dataset_SRO = LMDBDataset(root=training_loc + '/train_lmdb_SRO', 
+                      name='scattering', train=True, transform=transforms_, is_encoded=False)
+#TODO setup distributed training
+train_sampler_SRO = torch.utils.data.distributed.DistributedSampler(dataset_SRO,
+                                                                num_replicas=opt.world_size,
+                                                                rank=opt.rank)
+data_loader_SRO = torch.utils.data.DataLoader(dataset_SRO,
+                                              batch_size=opt.batch_size,
+                                              shuffle=False,
+                                              num_workers=opt.n_cpu,
+                                              pin_memory=True,
+                                              sampler=train_sampler_SRO,
+                                              drop_last = True)
 
 # validation dataset
 #val_dataloader = DataLoader(
@@ -140,7 +183,6 @@ data_loader_dFF = torch.utils.data.DataLoader(dataset_dFF,
 # Tensor type
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-
 def sample_images(batches_done):
     """Saves a generated sample from the validation set"""
     imgs = next(iter(val_dataloader))
@@ -150,6 +192,59 @@ def sample_images(batches_done):
     img_sample = torch.cat((real_A.data, fake_B.data, real_B.data), -2)
     save_image(img_sample, "images/%s/%s.png" % (opt.dataset_name, batches_done), nrow=5, normalize=True)
 
+def train_GD(optimizer_G, optimizer_D, batch, generator, discriminator, opt):
+    """
+    Train the relevent generator and discriminator 
+    """
+    # Model inputs
+    real_A = Variable(batch["A"].type(Tensor))
+    real_B = Variable(batch["B"].type(Tensor)) # this corresponds to the scattering data   
+
+    # Adversarial ground truths
+    valid = Variable(Tensor(np.ones((real_A.size(0), *patch))), requires_grad=False)
+    fake = Variable(Tensor(np.zeros((real_A.size(0), *patch))), requires_grad=False)    
+
+    # ------------------
+    #  Train Generators
+    # ------------------
+
+    optimizer_G.zero_grad()
+
+    # GAN loss
+    fake_B = generator(real_A)
+    pred_fake = discriminator(fake_B, real_A)
+    loss_GAN = criterion_GAN(pred_fake, valid)
+    # Pixel-wise loss
+    loss_pixel = criterion_pixelwise(fake_B, real_B)
+
+    # Total loss
+    loss_G = loss_GAN + opt.lambda_pixel * loss_pixel
+
+    loss_G.backward()
+
+    optimizer_G.step()
+
+    # ---------------------
+    #  Train Discriminator
+    # ---------------------
+
+    optimizer_D.zero_grad()
+
+    # Real loss
+    pred_real = discriminator(real_B, real_A)
+    loss_real = criterion_GAN(pred_real, valid)
+
+    # Fake loss
+    pred_fake = discriminator(fake_B.detach(), real_A)
+    loss_fake = criterion_GAN(pred_fake, fake)
+
+    # Total loss
+    loss_D = 0.5 * (loss_real + loss_fake)
+
+    loss_D.backward()
+    optimizer_D.step()
+
+    return optimizer_G, optimizer_D, generator, discriminator
 
 # ----------
 #  Training
@@ -161,55 +256,20 @@ def sample_images(batches_done):
 prev_time = time.time()
 
 for epoch in range(opt.epoch, opt.n_epochs):
-    for i, batch in enumerate(dataloader):
+    for i, batch in enumerate(zip(data_loader_dFF, data_loader_SRO)):
+        batch_dFF, batch_SRO = batch
 
-        # Model inputs
-        real_A = Variable(batch["B"].type(Tensor))
-        real_B = Variable(batch["A"].type(Tensor))
+        optimizer_G_dFF, optimizer_D_dFF, generator_dFF, discriminator_dFF = train_GD(optimizer_G_dFF, optimizer_D_dFF, batch_dFF, generator_dFF, discriminator_dFF, opt)
+        optimizer_G_SRO, optimizer_D_SRO, generator_SRO, discriminator_SRO = train_GD(optimizer_G_SRO, optimizer_D_SRO, batch_SRO, generator_SRO, discriminator_SRO, opt)
 
-        # Adversarial ground truths
-        valid = Variable(Tensor(np.ones((real_A.size(0), *patch))), requires_grad=False)
-        fake = Variable(Tensor(np.zeros((real_A.size(0), *patch))), requires_grad=False)
+        #TODO add additional loss here combining dFF and SRO to scattering output
 
-        # ------------------
-        #  Train Generators
-        # ------------------
+        #TODO add good logging here
 
-        optimizer_G.zero_grad()
 
-        # GAN loss
-        fake_B = generator(real_A)
-        pred_fake = discriminator(fake_B, real_A)
-        loss_GAN = criterion_GAN(pred_fake, valid)
-        # Pixel-wise loss
-        loss_pixel = criterion_pixelwise(fake_B, real_B)
 
-        # Total loss
-        loss_G = loss_GAN + lambda_pixel * loss_pixel
 
-        loss_G.backward()
 
-        optimizer_G.step()
-
-        # ---------------------
-        #  Train Discriminator
-        # ---------------------
-
-        optimizer_D.zero_grad()
-
-        # Real loss
-        pred_real = discriminator(real_B, real_A)
-        loss_real = criterion_GAN(pred_real, valid)
-
-        # Fake loss
-        pred_fake = discriminator(fake_B.detach(), real_A)
-        loss_fake = criterion_GAN(pred_fake, fake)
-
-        # Total loss
-        loss_D = 0.5 * (loss_real + loss_fake)
-
-        loss_D.backward()
-        optimizer_D.step()
 
         # --------------
         #  Log Progress
