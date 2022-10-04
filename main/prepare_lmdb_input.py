@@ -164,8 +164,8 @@ def read_images(folder: str, tag: str, max_num: int) -> np.array:
     # read in order of images
     images = []
     for n in range(max_num):
-        image0 = np.array(Image.open(folder + "/" + tag + "/img_%04d.png"%(n)))
-        image1 = np.array(Image.open(folder + "/Scattering/img_%04d.png"%(n)))
+        image0 = np.array(Image.open(folder + "/Scattering/img_%04d.png"%(n))) # conditional input
+        image1 = np.array(Image.open(folder + "/" + tag + "/img_%04d.png"%(n))) # the dFF or SRO are the target (from the scattering data)
         images.append(staple_image(image0, image1))
     return np.asarray(images).astype(np.uint8)
 
