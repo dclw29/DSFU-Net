@@ -64,7 +64,7 @@ class LMDB_Image:
 
         return image_A, image_B  
 
-def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_SRO, opt):
+def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_SRO, opt, save_loc):
     """Saves a generated sample - should be from validation set"""
     real_A_dFF = Variable(batch_dFF["A"].type(Tensor))
     real_B_dFF = Variable(batch_dFF["B"].type(Tensor))
@@ -78,8 +78,8 @@ def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_S
     img_sample_dFF = torch.cat((real_A_dFF.data, fake_B_dFF.data, real_B_dFF.data), -1) # create big sample to save
     img_sample_SRO = torch.cat((real_A_SRO.data, fake_B_SRO.data, real_B_SRO.data), -1)
 
-    save_image(img_sample_dFF, "images/%s/%s_dFF.png" % (opt.dataset_name, batches_done), nrow=5, normalize=True)
-    save_image(img_sample_SRO, "images/%s/%s_SRO.png" % (opt.dataset_name, batches_done), nrow=5, normalize=True)
+    save_image(img_sample_dFF, save_loc + "/../images/%s/%s_dFF.png" % (opt.experiment_name, batches_done), nrow=5, normalize=True)
+    save_image(img_sample_SRO, save_loc + "/../images/%s/%s_SRO.png" % (opt.experiment_name, batches_done), nrow=5, normalize=True)
 
 def train_GD(optimizer_G, optimizer_D, batch, generator, discriminator, patch, criterion_GAN, criterion_pixelwise, opt):
     """
@@ -180,6 +180,7 @@ class Train:
         self.epoch = opt.epoch
         self.n_epochs = opt.n_epochs
         self.dataset_name = opt.dataset_name
+        self.experiment_name = opt.experiment_name
         self.batch_size = opt.batch_size
         self.lr = opt.lr
         self.b1 = opt.b1
@@ -194,6 +195,7 @@ class Train:
         self.lambda_pixel = opt.lambda_pixel
         self.sample_interval = opt.sample_interval
         self.checkpoint_interval = opt.checkpoint_interval
+        self.log_interval = opt.log_interval
 
         if torch.cuda.is_available():
             #cuda = torch.device('cuda:{}'.format(gpu))
@@ -204,10 +206,11 @@ class Train:
         training_loc = self.dataset_name
         test_loc = file_loc + "/dataset/test"
         save_loc = file_loc + "/RUN/saved_models"
+        self.save_loc = save_loc
         
         # from current directory, create models and images of network
-        os.makedirs(file_loc + "/RUN/images/%s" % opt.dataset_name, exist_ok=True)
-        os.makedirs(save_loc + "/%s" % opt.dataset_name, exist_ok=True)
+        os.makedirs(file_loc + "/RUN/images/%s" % opt.experiment_name, exist_ok=True)
+        os.makedirs(save_loc + "/%s" % opt.experiment_name, exist_ok=True)
 
         # Loss functions
         self.criterion_GAN = torch.nn.MSELoss()
@@ -235,10 +238,10 @@ class Train:
         # continue from a pre-existing network
         if opt.epoch != 0:
             # Load pretrained models
-            self.generator_dFF.load_state_dict(torch.load(save_loc + "/%s/generator_dFF_%d.pth" % (self.dataset_name, self.epoch)))
-            self.discriminator_dFF.load_state_dict(torch.load(save_loc + "/%s/discriminator_dFF_%d.pth" % (self.dataset_name, self.epoch)))
-            self.generator_SRO.load_state_dict(torch.load(save_loc + "/%s/generator_SRO_%d.pth" % (self.dataset_name, self.epoch)))
-            self.discriminator_SRO.load_state_dict(torch.load(save_loc + "/%s/discriminator_SRO_%d.pth" % (self.dataset_name, self.epoch)))
+            self.generator_dFF.load_state_dict(torch.load(save_loc + "/%s/generator_dFF_%d.pth" % (self.experiment_name, self.epoch)))
+            self.discriminator_dFF.load_state_dict(torch.load(save_loc + "/%s/discriminator_dFF_%d.pth" % (self.experiment_name, self.epoch)))
+            self.generator_SRO.load_state_dict(torch.load(save_loc + "/%s/generator_SRO_%d.pth" % (self.experiment_name, self.epoch)))
+            self.discriminator_SRO.load_state_dict(torch.load(save_loc + "/%s/discriminator_SRO_%d.pth" % (self.experiment_name, self.epoch)))
         else:
             # Initialize weights
             self.generator_dFF.apply(weights_init_normal)
@@ -311,48 +314,50 @@ class Train:
                 # this is a little bit of cheating over discrim so may need to adjust discrim strength
                 self.optimizer_G_dFF, self.generator_dFF, self.optimizer_G_SRO, self.generator_SRO, loss_scat = train_both_scat(self.optimizer_G_dFF, batch_dFF, self.generator_dFF, self.optimizer_G_SRO, batch_SRO, self.generator_SRO, self.Scat_Loss, self.opt)
 
-                #################################################################################
-                # --------------
-                #  Log Progress
-                # --------------
-        
-                # Determine approximate time left
                 batches_done = epoch * len(self.data_loader_dFF) + i
-                batches_left = opt.n_epochs * len(self.data_loader_dFF) - batches_done
-                time_left = datetime.timedelta(seconds=batches_left * (time.time() - prev_time))
-                prev_time = time.time()
+                if batches_done % self.log_interval == 0:
+
+                    #################################################################################
+                    # --------------
+                    #  Log Progress
+                    # --------------
         
-                # Print log
-                sys.stdout.write(
-                    "\r[Epoch %d/%d] [Batch %d/%d] [dFF D loss: %f] [dFF G loss: %f, pixel: %f, adv: %f] [SRO D loss: %f] [SRO G loss: %f, pixel: %f, adv: %f] [Scat loss: %f] ETA: %s"
-                    % (
-                        epoch,
-                        opt.n_epochs,
-                        i,
-                        len(self.data_loader_dFF),
-                        loss_dFF[0].item(),
-                        loss_dFF[1].item(),
-                        loss_dFF[2].item(),
-                        loss_dFF[3].item(),
-                        loss_SRO[0].item(),
-                        loss_SRO[1].item(),
-                        loss_SRO[2].item(),
-                        loss_SRO[3].item(),
-                        loss_scat.item(),
-                        time_left,
+                    # Determine approximate time left
+                    batches_left = opt.n_epochs * len(self.data_loader_dFF) - batches_done
+                    time_left = datetime.timedelta(seconds=batches_left * (time.time() - prev_time))
+                    prev_time = time.time()
+        
+                    # Print log
+                    sys.stdout.write(
+                        "\r[Epoch %d/%d] [Batch %d/%d] [dFF D loss: %f] [dFF G loss: %f, pixel: %f, adv: %f] [SRO D loss: %f] [SRO G loss: %f, pixel: %f, adv: %f] [Scat loss: %f] ETA: %s"
+                        % (
+                            epoch,
+                            opt.n_epochs,
+                            i,
+                            len(self.data_loader_dFF),
+                            loss_dFF[0].item(),
+                            loss_dFF[1].item(),
+                            loss_dFF[2].item(),
+                            loss_dFF[3].item(),
+                            loss_SRO[0].item(),
+                            loss_SRO[1].item(),
+                            loss_SRO[2].item(),
+                            loss_SRO[3].item(),
+                            loss_scat.item(),
+                            time_left,
+                        )
                     )
-                )
         
                 # If at sample interval save image
                 if batches_done % opt.sample_interval == 0:
-                    sample_images(batches_done, batch_dFF, batch_SRO, self.generator_dFF, self.generator_SRO, opt)
+                    sample_images(batches_done, batch_dFF, batch_SRO, self.generator_dFF, self.generator_SRO, opt, self.save_loc)
         
-            if self.checkpoint_interval != -1 and epoch % self.checkpoint_interval == 0:
+            if self.checkpoint_interval != -1 and epoch % self.checkpoint_interval == 0 and opt.sample_interval == 0:
                 # Save model checkpoints
-                torch.save(self.generator_dFF.state_dict(), "saved_models/%s/generator_dFF_%d.pth" % (self.dataset_name, epoch))
-                torch.save(self.discriminator_dFF.state_dict(), "saved_models/%s/discriminator_dFF_%d.pth" % (self.dataset_name, epoch))
-                torch.save(self.generator_SRO.state_dict(), "saved_models/%s/generator_SRO_%d.pth" % (self.dataset_name, epoch))
-                torch.save(self.discriminator_SRO.state_dict(), "saved_models/%s/discriminator_SRO_%d.pth" % (self.dataset_name, epoch))                
+                torch.save(self.generator_dFF.state_dict(), self.save_loc + "/%s/generator_dFF_%d.pth" % (self.experiment_name, epoch))
+                torch.save(self.discriminator_dFF.state_dict(), self.save_loc + "/%s/discriminator_dFF_%d.pth" % (self.experiment_name, epoch))
+                torch.save(self.generator_SRO.state_dict(), self.save_loc + "/%s/generator_SRO_%d.pth" % (self.experiment_name, epoch))
+                torch.save(self.discriminator_SRO.state_dict(), self.save_loc + "/%s/discriminator_SRO_%d.pth" % (self.experiment_name, epoch))                
 
 ################################################################################################################
 ####### MAIN RUN CODE #######
@@ -363,7 +368,8 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
     parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
     parser.add_argument("--dataset_name", type=str, default="/data/lrudden/ML-DiffuseReader/dataset/training/", help="name of the dataset")
-    parser.add_argument("--batch_size", type=int, default=32, help="size of the batches")
+    parser.add_argument("--experiment_name", type=str, default="first_test", help="name of expt")
+    parser.add_argument("--batch_size", type=int, default=16, help="size of the batches")
     parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
     parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -373,9 +379,10 @@ if __name__ == "__main__":
     parser.add_argument("--img_width", type=int, default=256, help="size of image width")
     parser.add_argument("--channels", type=int, default=3, help="number of image channels")
     parser.add_argument(
-        "--sample_interval", type=int, default=50, help="interval between sampling of images from generators"
+        "--sample_interval", type=int, default=1000, help="interval between sampling of images from generators"
     )
-    parser.add_argument("--checkpoint_interval", type=int, default=-1, help="interval between model checkpoints")
+    parser.add_argument("--log_interval", type=int, default=100, help="How often to post log messages")
+    parser.add_argument("--checkpoint_interval", type=int, default=2, help="interval between model checkpoints")
     parser.add_argument("--rank", type=int, default=0, help="GPU rank of process")
     parser.add_argument("--world_size", type=int, default=1, help="Total number of GPUs being trained on")
     parser.add_argument("--lambda_pixel", type=int, default=100, help="Lambda pixel smoother weight")

@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 def num_samples(dataset, train):
     if dataset == "scattering":
         # 100 for testing
-        return 100 if train else 200 # this number is specific to the number of TM examples we have for training
+        return 205578 if train else 1000 # this number is specific to the number of TM examples we have for training
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
 
@@ -163,10 +163,13 @@ def read_images(folder: str, tag: str, max_num: int) -> np.array:
 
     # read in order of images
     images = []
-    for n in range(max_num):
-        image0 = np.array(Image.open(folder + "/Scattering/img_%04d.png"%(n))) # conditional input
-        image1 = np.array(Image.open(folder + "/" + tag + "/img_%04d.png"%(n))) # the dFF or SRO are the target (from the scattering data)
+    # too much data, just use every 5th image for now
+    for n in range(0, max_num+1, 5):
+        image0 = np.array(Image.open(folder + "/Scattering/%i.png"%(n))) # conditional input
+        image1 = np.array(Image.open(folder + "/" + tag + "/%i.png"%(n))) # the dFF or SRO are the target (from the scattering data)
         images.append(staple_image(image0, image1))
+        if n % 92 == 0:
+            print(">> %.2f completed"%(n * 100 /max_num))
     return np.asarray(images).astype(np.uint8)
 
 if __name__ == "__main__":
@@ -174,13 +177,13 @@ if __name__ == "__main__":
     # naming convention of input files
     # DiffuseScattering00001.npy, DiffuseScattering00002.npy... DiffuseScattering09999.npy and so on (5 digits)
 
-    trainingfolder = "/home/dclw/ML-DiffuseReader/dataset/training/"
-    max_num = 271
+    trainingfolder = "/data/lrudden/ML-DiffuseReader/dataset/training/"
+    max_num = 1027899
 
     images_dFF = read_images(trainingfolder, "dFF", max_num)
-    images_SRO = read_images(trainingfolder, "SRO", max_num)
-
     store_many_lmdb(images_dFF, trainingfolder + "train_lmdb_dFF")
+    del images_dFF
+    images_SRO = read_images(trainingfolder, "SRO", max_num)
     store_many_lmdb(images_SRO, trainingfolder + "train_lmdb_SRO")
 
     # for testing
