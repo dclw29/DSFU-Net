@@ -111,7 +111,8 @@ for i in range(int(start), int(end)):
     #### new ####
     logger.info("> Calculating short range order")
     # these definitions can be put outside the loop
-    v = np.asarray([[0,0,1],[1,1,0],[1,0,0],[0,1,1],[0,1,0],[1,0,1],[1,1,1]])
+    v = np.asarray([[0,0,1],[1,1,0],[1,0,0],[0,1,1],[0,1,0],[1,0,1],[1,1,1],
+                   [0,0,-1],[-1,-1,0],[-1,0,0],[0,-1,-1],[0,-1,0],[-1,0,1-],[-1,-1,-1]])
     concentrations = np.arange(0.1,0.6,0.1)
 
     M2 = 1 - concentrations
@@ -124,7 +125,7 @@ for i in range(int(start), int(end)):
         for i in range(len(p)):
             al[i] = 1-(p[i]/(concentrations[c] * M2[c]))      
         
-        SRO = 2 * np.sum(al[:,None,None,None] * SRO_cos, axis=0).T + 1
+        SRO = np.sum(al[:,None,None,None] * SRO_cos, axis=0).T + 1
         scat = dFF*SRO
         np.save(savefolder + moleculeCode + "_" + str(c) + "_SRO.npy", SRO)
         # Image testing
