@@ -34,10 +34,13 @@ logger.setLevel(logging.INFO)
 savefolder = "/data/lrudden/ML-DiffuseReader/dataset/raw_files/%s/"%str(start)
 imagefolder = "/data/lrudden/ML-DiffuseReader/dataset/training/%s/"%str(start)
 # create necessary folders
-os.mkdir(savefolder)
-os.mkdir(imagefolder)
+if not os.path.exists(savefolder):
+    os.mkdir(savefolder)
+if not os.path.exists(imagefolder):
+    os.mkdir(imagefolder)
 for s in ["Scattering", "SRO", "dFF"]:
-    os.mkdir(imagefolder + s)
+    if not os.path.exists(imagefolder + s):
+        os.mkdir(imagefolder + s)
 
 t0 = time.time()
 logger.info("> Creating q-grid")
@@ -112,7 +115,7 @@ for i in range(int(start), int(end)):
     logger.info("> Calculating short range order")
     # these definitions can be put outside the loop
     v = np.asarray([[0,0,1],[1,1,0],[1,0,0],[0,1,1],[0,1,0],[1,0,1],[1,1,1],
-                   [0,0,-1],[-1,-1,0],[-1,0,0],[0,-1,-1],[0,-1,0],[-1,0,1-],[-1,-1,-1]])
+                   [0,0,-1],[-1,-1,0],[-1,0,0],[0,-1,-1],[0,-1,0],[-1,0,-1],[-1,-1,-1]])
     concentrations = np.arange(0.1,0.6,0.1)
 
     M2 = 1 - concentrations

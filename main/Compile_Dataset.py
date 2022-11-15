@@ -36,10 +36,11 @@ def load_data(directory, filename, integer_leaps=16):
     dFF_data = torch.tensor(np.load(directory + "/" + filename[:-6] + "dFF.npy"))
     return scat_data[:, :, ::16], SRO_data[:, :, ::16], dFF_data[:, :, ::16]
 
-def register_unique_slices(data, slices, wasserstein_cutoff=5E-12):
+def register_unique_slices(data, slices, wasserstein_cutoff=6.2E-11):
     """
     See whether we have any unique data slices (i.e. cross-similarity between different returned matches of unique slices)
     slices is a list of indices to use
+    cutoff is calculated from moving between two random distributions (the mean of 10000 wasserstein distances)
     """
 
     def _find_non_unique_(data, idx0, idx1):
@@ -78,7 +79,7 @@ def normalise_data_max(data):
     max_val = torch.max(data + data.min().abs())
     return (data + data.min().abs()) / torch.max(data + data.min().abs()), shift_val, max_val
 
-def prep_dataset(directory, artefact_folder="/home/lrudden/ML-DiffuseReader/Artefacts/", wasserstein_cutoff=5E-12, integer_leaps=16):
+def prep_dataset(directory, artefact_folder="/home/lrudden/ML-DiffuseReader/Artefacts/", wasserstein_cutoff=6.2E-11, integer_leaps=16):
     """
     Loop through all numpy 3D arrays in folder and create larger array with each individual (correct) slice
     Choose what to extract here based on wasserstein metric (i.e. if greater than the cutoff, keep)
