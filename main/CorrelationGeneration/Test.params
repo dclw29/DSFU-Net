@@ -1,0 +1,29 @@
+# Input file for diffuse scattering code
+# Do not delete the capitalised words - they are required for reading in block of parameters
+# Comments are added using the # - they can only be whole line comments
+CELL = 4.0 4.0 4.0 90.0 90.0 90.0
+BOX_SIZE= 50 50 50
+USE_PADDING = False
+DIMENSIONS = 3
+REPEATS = 1 1 1
+SITES = 1
+SITE_ATOMS = 1
+SITE_VARIANTS = 2 
+VARIANT_ABUNDANCE =  0.2
+TARGET_CORRELATIONS = -0.25 -0.25 -0.25
+FORCE_CONSTANTS = -100 -100 -100
+NEIGHBOUR_DIRECTIONS = 1 1 1
+MC_CYCLES = 50
+MC_TEMP = 10
+
+NEIGHBOUR CONTACTS
+SITE1
+n1 = 1 0 0 0
+n2 = 0 1 0 0
+n3 = 0 0 1 0
+ATOMS
+# Atoms MUST be entered with nearest distances if group goes across periodic boundary
+SITE1 VARIANT1
+a1   = Cu	Cu	0.0000	0.0000	0.0000
+SITE1 VARIANT2
+a1   = Cu	Au	0.0000	0.0000	0.0000
