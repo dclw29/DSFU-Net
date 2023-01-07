@@ -1,16 +1,16 @@
 import sys
 
 def checkKey(dic):
-    key = ["CELL","BOX_SIZE","DIMENSIONS","SITES","SITE_ATOMS","SITE_VARIANTS","VARIANT_ABUNDANCE","TARGET_CORRELATIONS","FORCE_CONSTANTS","NEIGHBOUR_DIRECTIONS","MC_CYCLES","MC_TEMP"]
+    key = ["CELL","BOX_SIZE","SITES","SITE_ATOMS","SITE_VARIANTS","VARIANT_ABUNDANCE","TARGET_CORRELATIONS","FORCE_CONSTANTS","NEIGHBOUR_DIRECTIONS","MC_CYCLES","MC_TEMP"]
     for k in key:
         if k not in list(dic.keys()):
-            print("Parameter file is missing "+k)
+            print(" Parameter file is missing "+k)
             sys.exit()
 
 def readParamFile(filename):
-    print("\n================Reading from input================")
+    print("\n================Reading from input================\n")
     file1 = open(filename)
-    print("   Filename: "+filename)
+    print(" Filename: "+filename)
     # Read first section of file to get cell parameters etc
     args = {}
     for line in file1:
@@ -26,14 +26,14 @@ def readParamFile(filename):
 
     # convert to usable parameters
     CELL = [float(i) for i in args["CELL"].strip().split()]
-    print("   Cell parameters: "+str(CELL[0])+", "+str(CELL[1])+", "+str(CELL[1]))
-    print("                    "+str(CELL[3])+", "+str(CELL[4])+", "+str(CELL[5]))
+    print(" Cell parameters: "+str(CELL[0])+", "+str(CELL[1])+", "+str(CELL[1]))
+    print("                  "+str(CELL[3])+", "+str(CELL[4])+", "+str(CELL[5]))
     if len(CELL) != 6: 
         print("Wrong number of cell parameters")
         sys.exit()
 
     BOX_SIZE = [int(i) for i in args["BOX_SIZE"].strip().split()]
-    print("   Box size: "+str(BOX_SIZE[0])+", "+str(BOX_SIZE[1])+", "+str(BOX_SIZE[2]))
+    print(" Box size: "+str(BOX_SIZE[0])+", "+str(BOX_SIZE[1])+", "+str(BOX_SIZE[2]))
     if len(BOX_SIZE) != 3: 
         print("Wrong number of supercell parameters")
         sys.exit()
@@ -42,11 +42,6 @@ def readParamFile(filename):
         USE_PADDING = args["USE_PADDING"].strip()
     else:
         USE_PADDING = False
-
-    DIMENSIONS = int(args["DIMENSIONS"].strip())
-    if DIMENSIONS < 1 or DIMENSIONS > 3: 
-        print("Dimensions should be 1, 2 or 3")
-        sys.exit()
 
     SITES = int(args["SITES"].strip())
 
@@ -122,23 +117,5 @@ def readParamFile(filename):
             atoms[f'S{i}_V{j}'] = a
 
     file1.close()
-    return(CELL,BOX_SIZE,USE_PADDING,DIMENSIONS,SITES,SITE_ATOMS,SITE_VARIANTS,VARIANT_ABUNDANCE,TARGET_CORRELATIONS,FORCE_CONSTANTS,NEIGHBOUR_DIRECTIONS,MC_CYCLES,MC_TEMP,neighbourContacts,atoms)
+    return(CELL,BOX_SIZE,USE_PADDING,SITES,SITE_ATOMS,SITE_VARIANTS,VARIANT_ABUNDANCE,TARGET_CORRELATIONS,FORCE_CONSTANTS,NEIGHBOUR_DIRECTIONS,MC_CYCLES,MC_TEMP,neighbourContacts,atoms)
 
-def getRepeats(filename):
-    file1 = open(filename)
-    # Read first section of file to get cell parameters etc
-    for line in file1:
-        if not line.strip().startswith("#"):
-            if "REPEATS" in line:
-                line = line.strip()
-                repeats = line.split("=")[1]
-                repeats = [int(i) for i in repeats.strip().split()]
-                if len(repeats) != 3:
-                    print("The number of values in the repeats line should be 3")
-                    sys.exit()
-                break
-            elif "NEIGHBOUR CONTACTS" in line: 
-                print("Did not find a REPEATS value in input file")
-                sys.exit()
-   
-    return repeats
