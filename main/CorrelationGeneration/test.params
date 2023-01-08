@@ -2,7 +2,7 @@
 # Do not delete the capitalised words - they are required for reading in block of parameters
 # Comments are added using the # - they can only be whole line comments
 CELL = 4.0 4.0 4.0 90.0 90.0 90.0
-BOX_SIZE= 32 32 32
+BOX_SIZE= 48 48 48
 USE_PADDING = False
 SITES = 1
 SITE_ATOMS = 1

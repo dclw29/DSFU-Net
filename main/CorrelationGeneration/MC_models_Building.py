@@ -9,13 +9,16 @@ def detOrderedModel(VARIANT_ABUNDANCE, TARGET_CORRELATIONS):
     TARGET_CORRELATIONS = np.asarray(TARGET_CORRELATIONS)
     if min(TARGET_CORRELATIONS)< minAlpha:
         print("\n WARNING: The desired correlations are too low for \n          this concentration of defects.")
-        key_pressed = input(' Press 0 to set the target correlations to their minimum value\n Press 1 to set the target correlations to (requested correlation * the minimum)\n')
-        if key_pressed == '0':
-            TARGET_CORRELATIONS = np.where(TARGET_CORRELATIONS<minAlpha,minAlpha,TARGET_CORRELATIONS)
-            print(" The new target correlations are: \n    "+str(TARGET_CORRELATIONS))
-        elif key_pressed == '1':
-            TARGET_CORRELATIONS = np.where(TARGET_CORRELATIONS<minAlpha,TARGET_CORRELATIONS*abs(minAlpha),TARGET_CORRELATIONS)
-            print(" The new target correlations are: \n    "+str(TARGET_CORRELATIONS))
+        print("Slightly auto-changing the correlations to better respect the concentration of defects\n")
+        TARGET_CORRELATIONS = np.where(TARGET_CORRELATIONS<minAlpha,minAlpha,TARGET_CORRELATIONS)
+        print(" The new target correlations are: \n    "+str(TARGET_CORRELATIONS))
+        #key_pressed = input(' Press 0 to set the target correlations to their minimum value\n Press 1 to set the target correlations to (requested correlation * the minimum)\n')
+        #if key_pressed == '0':
+        #    TARGET_CORRELATIONS = np.where(TARGET_CORRELATIONS<minAlpha,minAlpha,TARGET_CORRELATIONS)
+        #    print(" The new target correlations are: \n    "+str(TARGET_CORRELATIONS))
+        #elif key_pressed == '1':
+        #    TARGET_CORRELATIONS = np.where(TARGET_CORRELATIONS<minAlpha,TARGET_CORRELATIONS*abs(minAlpha),TARGET_CORRELATIONS)
+        #    print(" The new target correlations are: \n    "+str(TARGET_CORRELATIONS))
 
     modelType = 0
     rodAxis = -1
@@ -175,11 +178,13 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
         
     elif modelType == 2:
         order = np.full((BOX_SIZE[0],BOX_SIZE[1],BOX_SIZE[2]),1)
-        for t in range(int(1/VARIANT_ABUNDANCE[0])):
+        for t in range(round(1/VARIANT_ABUNDANCE[0])):
             if rand.random()<VARIANT_ABUNDANCE[0]: 
                 order[0,0,t] = -1
                 break
-        for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+            elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                order[0,0,t] = -1
+        for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
             order[0,0,u] = -1
         for j in range(1,BOX_SIZE[1]):
             order[0,j,:] = np.roll(order[0,j-1,:],1)
@@ -199,29 +204,35 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
         if rodAxis == 0:
             for i in range(np.shape(order)[1]):
                 for j in range(np.shape(order)[2]):
-                    for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                    for t in range(round(1/VARIANT_ABUNDANCE[0])):
                         if rand.random()<VARIANT_ABUNDANCE[0]: 
                             order[t,i,j] = -1
                             break
-                    for u in range(t,BOX_SIZE[0],int(1/VARIANT_ABUNDANCE[0])):
+                        elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                            order[t,i,j] = -1
+                    for u in range(t,BOX_SIZE[0],round(1/VARIANT_ABUNDANCE[0])):
                         order[u,i,j] = -1
         elif rodAxis == 1:
             for i in range(np.shape(order)[0]):
                 for j in range(np.shape(order)[2]):
-                    for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                    for t in range(round(1/VARIANT_ABUNDANCE[0])):
                         if rand.random()<VARIANT_ABUNDANCE[0]: 
                             order[i,t,j] = -1
                             break
-                    for u in range(t,BOX_SIZE[1],int(1/VARIANT_ABUNDANCE[0])):
+                        elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                            order[i,t,j] = -1
+                    for u in range(t,BOX_SIZE[1],round(1/VARIANT_ABUNDANCE[0])):
                         order[i,u,j] = -1
         elif rodAxis == 2:
             for i in range(np.shape(order)[0]):
                 for j in range(np.shape(order)[1]):
-                    for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                    for t in range(round(1/VARIANT_ABUNDANCE[0])):
                         if rand.random()<VARIANT_ABUNDANCE[0]: 
                             order[i,j,t] = -1
                             break
-                    for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                        elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                            order[i,j,t] = -1
+                    for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                         order[i,j,u] = -1
 
 
@@ -250,31 +261,37 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
         
         if stackingAxis == 0:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[i,0,t] = -1
                         break
-                for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[i,0,t] = -1
+                for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                     order[i,0,u] = -1
                 for j in range(1,BOX_SIZE[1]):
                     order[i,j,:] = np.roll(order[i,j-1,:],1)
         elif stackingAxis == 1:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[0,i,t] = -1
                         break
-                for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[0,i,t] = -1
+                for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                     order[0,i,u] = -1
                 for j in range(1,BOX_SIZE[1]):
                     order[j,i,:] = np.roll(order[j-1,i,:],1)
         elif stackingAxis == 2:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[0,t,i] = -1
                         break
-                for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[0,t,i] = -1
+                for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                     order[0,u,i] = -1
                 for j in range(1,BOX_SIZE[1]):
                     order[j,:,i] = np.roll(order[j-1,:,i],1)
@@ -306,51 +323,63 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
 
         if stackingAxis == 0 and orderedAxis == 1 and rodAxis == 2:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[i,t,:] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[i,t,:] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[i,u,:] = -1
         elif stackingAxis == 0 and orderedAxis == 2 and rodAxis == 1:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[i,:,t] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[i,:,t] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[i,:,u] = -1
         elif stackingAxis == 1 and orderedAxis == 0 and rodAxis == 2:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[t,i,:] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[t,i,:] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[u,i,:] = -1
         elif stackingAxis == 1 and orderedAxis == 2 and rodAxis == 0:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[:,i,t] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[:,i,t] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[:,i,u] = -1
         elif stackingAxis == 2 and orderedAxis == 0 and rodAxis == 1:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[t,:,i] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[t,:,i] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[u,:,i] = -1
         elif stackingAxis == 2 and orderedAxis == 1 and rodAxis == 0:
             for i in range(BOX_SIZE[stackingAxis]):
-                for t in range(int(1/VARIANT_ABUNDANCE[0])):
+                for t in range(round(1/VARIANT_ABUNDANCE[0])):
                     if rand.random()<VARIANT_ABUNDANCE[0]: 
                         order[:,t,i] = -1
                         break
-                for u in range(t,BOX_SIZE[orderedAxis],int(1/VARIANT_ABUNDANCE[0])):
+                    elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                        order[:,t,i] = -1
+                for u in range(t,BOX_SIZE[orderedAxis],round(1/VARIANT_ABUNDANCE[0])):
                         order[:,u,i] = -1
 
         for k in range(len(supercell)):
@@ -363,29 +392,35 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
         order = np.full((BOX_SIZE[0],BOX_SIZE[1],BOX_SIZE[2]),1)
         
         if stackingAxis == 0:
-            for t in range(int(1/VARIANT_ABUNDANCE[0])):
+            for t in range(round(1/VARIANT_ABUNDANCE[0])):
                 if rand.random()<VARIANT_ABUNDANCE[0]: 
                     order[:,0,t] = -1
                     break
-            for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                    order[:,0,t] = -1
+            for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                 order[:,0,u] = -1
             for j in range(1,BOX_SIZE[1]):
                 order[:,j,:] = np.roll(order[:,j-1,:],1)
         elif stackingAxis == 1:
-            for t in range(int(1/VARIANT_ABUNDANCE[0])):
+            for t in range(round(1/VARIANT_ABUNDANCE[0])):
                 if rand.random()<VARIANT_ABUNDANCE[0]: 
                     order[0,:,t] = -1
                     break
-            for u in range(t,BOX_SIZE[2],int(1/VARIANT_ABUNDANCE[0])):
+                elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                    order[0,:,t] = -1
+            for u in range(t,BOX_SIZE[2],round(1/VARIANT_ABUNDANCE[0])):
                 order[0,:,u] = -1
             for j in range(1,BOX_SIZE[1]):
                 order[j,:,:] = np.roll(order[j-1,:,:],1)
         elif stackingAxis == 2:
-            for t in range(int(1/VARIANT_ABUNDANCE[0])):
+            for t in range(round(1/VARIANT_ABUNDANCE[0])):
                 if rand.random()<VARIANT_ABUNDANCE[0]: 
                     order[t,0,:] = -1
                     break
-            for u in range(t,BOX_SIZE[0],int(1/VARIANT_ABUNDANCE[0])):
+                elif t == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                    order[t,0,:] = -1
+            for u in range(t,BOX_SIZE[0],round(1/VARIANT_ABUNDANCE[0])):
                 order[u,0,:] = -1
             for j in range(1,BOX_SIZE[1]):
                 order[:,j,:] = np.roll(order[:,j-1,:],1,axis=0)
@@ -400,11 +435,13 @@ def buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,
         counter = 0
         # 1D ordered layers
         order = np.full(BOX_SIZE[stackingAxis],1)
-        for i in range(int(1/VARIANT_ABUNDANCE[0])):
+        for i in range(round(1/VARIANT_ABUNDANCE[0])):
             if rand.random()<VARIANT_ABUNDANCE[0]: 
                 order[i] = -1
                 break
-        for j in range(i,len(order),int(1/VARIANT_ABUNDANCE[0])):
+            elif i == round(1/VARIANT_ABUNDANCE[0]) - 1:
+                order[i] = -1
+        for j in range(i,len(order),round(1/VARIANT_ABUNDANCE[0])):
                 order[j] = -1
 
         for k in range(len(supercell)):

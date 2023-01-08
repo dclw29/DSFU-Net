@@ -12,105 +12,111 @@ import MC_models_Imports as imports
 import numpy as np
 import random as rand
 import matplotlib.pyplot as plt
+from argparse import Namespace
+import random 
+
+##### IMPORT ALPHA CALCULATIONS
+import SRO_sum
+
+# Big loop MC function
+def MC_LOOP(args, VARIANT_ABUNDANCE, TARGET_CORRELATIONS, FORCE_CONSTANTS):
+    """
+    Run the big MC loop to generate configurations to calculate alphas
+    """
+
+    # Build model
+    modelType, rodAxis, stackingAxis, TARGET_CORRELATIONS = models.detOrderedModel(VARIANT_ABUNDANCE, TARGET_CORRELATIONS)
+    supercell, VARIANT_ABUNDANCE = models.buildModel(args.BOX_SIZE, args.SITES, args.SITE_VARIANTS, VARIANT_ABUNDANCE, modelType, rodAxis, stackingAxis)
+
+    # Calculate neighbours
+    neighbours = models.getNeighbours(args.BOX_SIZE, args.SITES, args.SITE_VARIANTS, supercell, args.neighbourContacts, args.USE_PADDING)
+
+    # Run MC
+    supercell, correlations = Utils.MCOrdering(args.BOX_SIZE, args.SITE_ATOMS, VARIANT_ABUNDANCE, args.MC_CYCLES, args.MC_TEMP, TARGET_CORRELATIONS, FORCE_CONSTANTS, args.NEIGHBOUR_DIRECTIONS, supercell, neighbours, modelType, ncpus=args.ncpus)
+    
+    # reshape
+    q = np.reshape(supercell[:,4], (BOX_SIZE[0],BOX_SIZE[1],BOX_SIZE[2]))
+    q = np.where(q <0,0,q)
+
+    # build buffer around q
+    size_shift = len(q)
+    # There is additional padding of 2 in args.SHIFT to account for running the checks from -I to I+1
+    q = np.tile(q, (3,3,3))[size_shift - args.SHIFT[0]-2 : 2*size_shift+args.SHIFT[0]-2, size_shift - args.SHIFT[1]-2 : 2*size_shift+args.SHIFT[1]-2, size_shift - args.SHIFT[2]-2 : 2*size_shift+args.SHIFT[2]-2]
+
+    # calculate alphas
+    # prep generator
+    TOTAL_NUM = SRO_sum.mass_calc_3d(q, IJK=args.IJK, shift=args.SHIFT, ma=VARIANT_ABUNDANCE[0])
+    alpha = []
+    counter = 0
+    for item in TOTAL_NUM:
+        #print(item) -  contains information on I J K vectors and sum
+        alpha.append(item[-1])
+        counter += 1
+        if counter % 200 == 0:
+            print(item)
+
+    return VARIANT_ABUNDANCE, alpha
+
+##### INITALISING ####
 rand.seed()
 filestem = sys.argv[1]
 run = int(sys.argv[2])
 
-def V_true(C, i, i_shift, j, j_shift,k,k_shift):
-    """
-    Return true of the vector i, j corresponds to positive 1 (i.e. a sequence of A B), sequence of B A would return minus 1 (so take abs as B A also counts for A B to be adjacent)
-    i, j current location in matrix, i_shift and j_shift are indiced of V
-    """
-    x = np.shape(C)[0]
-    c = np.tile(C,(3,3,3))
-
-    if c[i+x, j+x,k+x] - c[i+x+i_shift, j+x+j_shift,k+x+k_shift] == 1:
-        return True
-    else:
-        return False 
-
-def V_sum(C, i, j,k,ma):
-    """
-    How many times does a sequence A, B occur over the vector direction {i, j} in the crystal C?
-    Note we always want to use a sliding window for the crystal so we can maximise information (i.e. don't skip potential off center sequences)
-    If i or j are negative, do we need to start counting from the other side of the crystal?
-    """
-    num = 0
-    # width of array possibility
-    W = np.shape(C)[0]
-    # and height
-    H = np.shape(C)[1]
-
-    D = np.shape(C)[2]
-    counter = 0
-    for w in range(W):
-        for h in range(H):
-            for d in range(D):
-                num += V_true(C, w, i, h, j,d,k)
-                counter += 1
-    prob = num/counter
-    al = 1-(prob/(ma*(1-ma)))
-
-    return al # number of occurances for V indices i and j
-
-def mass_calc(C, VARIANT_ABUNDANCE, I=1,J=1,K=1):
-    """
-    From i=0 to i=I and j=0 to j=J (indices of matrix), calculate the number of occurances of the sequence 
-    Generators list of current indices i and j and the number of occurances
-    """
-    ma = np.average(VARIANT_ABUNDANCE)
-    for i in range(0,I+1):
-        for j in range(-J,J+1):
-            for k in range(-K,K+1):
-                if i == 0 and j == 0 and k < 0: continue
-                elif i == 0 and j < 0: continue 
-                else: yield ["%i %i %i"%(i,j,k), V_sum(C, i, j,k,ma)]
-
-
-def initialise(N):
-    """
-    Create crystal of random 1s and 0s (for testing), 1 = mol A, 0 = mol B
-    """
-    #return np.random.randint(2, size=(N,N))
-    x = np.full((N,N),-1,dtype=int)
-    x[1::2,::2] = 1
-    x[::2,1::2] = 1
-    return x
-
+# Read input file
+# Some parameters will change later on
 CELL,BOX_SIZE,USE_PADDING,SITES,SITE_ATOMS,SITE_VARIANTS,VARIANT_ABUNDANCE,TARGET_CORRELATIONS,FORCE_CONSTANTS,NEIGHBOUR_DIRECTIONS,MC_CYCLES,MC_TEMP,neighbourContacts,atoms = imports.readParamFile(f'{filestem}.params')
 
-modelType, rodAxis, stackingAxis, TARGET_CORRELATIONS = models.detOrderedModel(VARIANT_ABUNDANCE, TARGET_CORRELATIONS)
+# Create IJK list
+IJK = SRO_sum.pre_gen_ijk(7, 7, 7)
+np.save("IJK_vectors.npy", np.asarray(IJK))
+# Add padding to account for running checks between -I and I+1
+SHIFT = [7+2, 7+2, 7+2]
 
-supercell, VARIANT_ABUNDANCE = models.buildModel(BOX_SIZE,SITES,SITE_VARIANTS,VARIANT_ABUNDANCE,modelType,rodAxis,stackingAxis)
-#q = np.reshape(supercell[:,4], (BOX_SIZE[0],BOX_SIZE[1],BOX_SIZE[2]))
-#q = np.where(q <0,0,q) + 1
-#fig = plt.figure()
-#ax = fig.add_subplot(111, projection='3d')
-#
-#x,y,z = q.nonzero()
-#ax.set_xlabel("x")
-#ax.set_ylabel("y")
-#ax.set_zlabel("z")
-#ax.scatter(x, y, z, c=q, alpha=0.5,cmap = 'bwr')
-#plt.show()
+# Create args list
+args = Namespace(CELL=CELL, BOX_SIZE=BOX_SIZE, USE_PADDING=USE_PADDING, SITES=SITES, SITE_ATOMS=SITE_ATOMS, SITE_VARIANTS=SITE_VARIANTS, NEIGHBOUR_DIRECTIONS=NEIGHBOUR_DIRECTIONS,
+                 MC_CYCLES=MC_CYCLES, MC_TEMP=MC_TEMP, neighbourContacts=neighbourContacts, atoms=atoms, IJK=IJK, SHIFT=SHIFT, ncpus=4)
 
-neighbours = models.getNeighbours(BOX_SIZE,SITES,SITE_VARIANTS, supercell, neighbourContacts, USE_PADDING)
-#t2 = time.time()
+# Run MC loop
+# variant abundance will be random between 0.1 and 0.5 inclusive
+# target correlations in principle can be between -0.6 and 0.6 but not under certain conditions relative to variant abundance, alter target correlation if this condition is met
+# specifically, calculate alpha min based on variant abundance and this sets the min threahshold for target correlations
+# force constants are based on the values of the correlations
+
+# Run 250 times for all molecular combinations
+# Generate 4 alphas per concentation, doing 3 concentrations (variant abundance)
 t0 = time.time()
-supercell, correlations = Utils.MCOrdering(BOX_SIZE,SITE_ATOMS,VARIANT_ABUNDANCE,MC_CYCLES,MC_TEMP, TARGET_CORRELATIONS, FORCE_CONSTANTS, NEIGHBOUR_DIRECTIONS,supercell,neighbours,modelType,ncpus=4)
-t1 = time.time()
-print("time: {:.4f}s".format(t1-t0))
+alpha_list = []
+abundance_target_list = []
+for n in range(250):
+    for C in range(3): # concentration / variant abundance
+        VARIANT_ABUNDANCE[0] = (random.random() * 0.4) + 0.1
+        minAlpha = max(- VARIANT_ABUNDANCE[0] / (1 - VARIANT_ABUNDANCE[0]), -0.6)
+        for a in range(4): # gen 4 
+            # create along each dimension
+            X = (random.random() * (0.6+abs(minAlpha))) + minAlpha
+            Y = (random.random() * (0.6+abs(minAlpha))) + minAlpha
+            Z = (random.random() * (0.6+abs(minAlpha))) + minAlpha
 
+            while abs(X) < 0.05 and abs(Y) < 0.05 and abs(Z) < 0.05:
+                print(">> X Y and Z for alpha gen stage all very close to zero! Resetting...")
+                X = (random.random() * (0.6+abs(minAlpha))) + minAlpha
+                Y = (random.random() * (0.6+abs(minAlpha))) + minAlpha
+                Z = (random.random() * (0.6+abs(minAlpha))) + minAlpha                
+            
+            TARGET_CORRELATIONS = [X, Y, Z]
 
-#plt.imshow(q[:,:,int(BOX_SIZE[2]/2)])
-#plt.show()
-#print(q)
+            for cnt, val in enumerate(TARGET_CORRELATIONS):
+                if val < -0.05: FORCE_CONSTANTS[cnt] = 100
+                elif val > 0.05: FORCE_CONSTANTS[cnt] = -100
+                else: FORCE_CONSTANTS[cnt] = 0
 
-#atomArray = models.convertToAtoms(BOX_SIZE,SITE_ATOMS,supercell,atoms)
-#average,Uiso = Utils.averageUnitCell(CELL,BOX_SIZE,SITE_ATOMS,atomArray,USE_PADDING)
-#exports.Scatty(filestem,run,atomArray,average,CELL,BOX_SIZE,SITE_ATOMS,USE_PADDING)
+            print(VARIANT_ABUNDANCE[0], TARGET_CORRELATIONS, a)
 
+            VARIANT_ABUNDANCE, alpha = MC_LOOP(args, VARIANT_ABUNDANCE, TARGET_CORRELATIONS, FORCE_CONSTANTS)
+            alpha_list.append(alpha)
+            abundance_target_list.append(VARIANT_ABUNDANCE + TARGET_CORRELATIONS) #  last three numbers in each row are therefore the target correlations
 
-TOTAL_NUM = mass_calc(q)
-for item in TOTAL_NUM:
-    print(item)
+    np.save("Alphas.npy", np.asarray(alpha_list))
+    np.save("Abundance_Target_list.npy", np.asarray(abundance_target_list))
+    print(">> Run %i took %.2f seconds"%(int(n), time.time() - t0))
+
