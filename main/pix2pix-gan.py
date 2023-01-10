@@ -162,9 +162,12 @@ def train_both_scat(optimizer_G_dFF, batch_dFF, generator_dFF, optimizer_G_SRO, 
     fake_B_dFF = generator_dFF(real_A_dFF)
     fake_B_SRO = generator_SRO(real_A_SRO) # create both images based on scattering data
 
-    # now create scatterning images from GAN output
+    # now create scattering images from GAN output
     fake_A_Scat = fake_B_dFF * fake_B_SRO
-    loss = Scat_Loss(fake_A_Scat, real_A_dFF)
+    # owing to the Cauchy–Schwarz inequality, These two outputs multiplied does not give the normalised actual scattering we're feeding into the network
+    # Therefore, we need to compare the loss with the real multiple of the dFF and SRO normalised images
+    real_Scat = real_A_dFF * real_A_SRO
+    loss = Scat_Loss(fake_A_Scat, real_Scat)
     loss.backward()
 
     optimizer_G_dFF.step()
