@@ -18,6 +18,18 @@ def artefact_creation(A, data):
     """
     return A * data
 
+def define_wasser_cutoff(no_checks=20000):
+    """
+    Calculate what the wasser cutoff should be based on moving between two sum normalised random dist
+    Check 20000 for good statistics
+    """
+    W = []
+    for d in range(no_checks):
+        data = torch.rand(256, 256, 2)
+        data_norm = normalise_data_sum(data)
+        W.append(wasserstein_distance(data_norm[:,:,0], data_norm[:,:,1]))
+    return np.mean(np.abs(W))
+    
 def wasserstein_distance(X, Y):
     """
     Calculate W distance https://stackoverflow.com/questions/56820151/is-there-a-way-to-measure-the-distance-between-two-distributions-in-a-multidimen
@@ -27,16 +39,17 @@ def wasserstein_distance(X, Y):
     Loss =  SamplesLoss("sinkhorn", blur=0.05,)
     return Loss( X, Y ).item()
 
-def load_data(directory, filename, integer_leaps=16):
+def load_data(directory, filename):
     """
     Load in the three relevent data for a scattering set and take slices based at integer leaps
+    #CHANGED no longer take integer leaps, take all values as we now only return 12 sensible suggestions
     """
     scat_data = torch.tensor(np.load(directory + "/" + filename + ".npy"))
     SRO_data = torch.tensor(np.load(directory + "/" + filename[:-4] + "SRO.npy"))
-    dFF_data = torch.tensor(np.load(directory + "/" + filename[:-6] + "dFF.npy"))
-    return scat_data[:, :, ::16], SRO_data[:, :, ::16], dFF_data[:, :, ::16]
+    dFF_data = torch.tensor(np.load(directory + "/" + filename[:-4] + "dFF.npy"))
+    return scat_data, SRO_data, dFF_data
 
-def register_unique_slices(data, slices, wasserstein_cutoff=6.2E-11):
+def register_unique_slices(data, slices, wasserstein_cutoff=6.7E-11):
     """
     See whether we have any unique data slices (i.e. cross-similarity between different returned matches of unique slices)
     slices is a list of indices to use
@@ -56,66 +69,131 @@ def register_unique_slices(data, slices, wasserstein_cutoff=6.2E-11):
         if delete_idx != 0:
             slices = np.delete(slices, current_idx) # slices is now one value smaller (current_idx remains the same)
         else:
-            unique.append(slices[current_idx]) # a rare occasion where we have a new value
+            unique.append(slices[current_idx]) # we have a unique image to add
             current_idx += 1
+            # we now need to check if anything left in slices is unique w.r.t this image 
+            # delete if so, keep otherwise (so we don't accidentally add another non-unique image)
+            if len(slices) > 2:
+                # slices changes dynamically, use a shift to avoid over counting beyond the bounds
+                shift = 0
+                for x in range(len(slices)-current_idx):
+                    delete_idx2 = _find_non_unique_(data, slices[current_idx-1], slices[current_idx+x-shift])
+                    if delete_idx2 != 0:
+                        slices = np.delete(slices, current_idx+x-shift)
+                        shift += 1
+                    else:
+                        continue
 
         if len(slices) == current_idx: # we've reached the end, reloop around
             current_idx = 1
             slices = np.delete(slices, 0)
 
-    return np.asarray(unique)
+    return np.unique(unique)
 
 def normalise_data_sum(data):
     """
     Normalise input data by the sum (prob distribution)
     """
-    return (data + data.min().abs()) / torch.sum(data + data.min().abs())
+    assert data.min() >= 0, "Input data for normalisation contains negative values!"
+    min_data = data.view(256*256, -1).min(dim=0)[0]
+    data -= min_data.unsqueeze(0).unsqueeze(0)
+    sum_data = data.view(256*256,-1).sum(dim=0)
+    return data / sum_data.unsqueeze(0).unsqueeze(0)
 
-def normalise_data_max(data):
+def normalise_data_max(data, buffer=0.01):
     """
     Normalise input data by the maximum value
+    Buffer is how much we set as the min value such that any scattering data isn't lost during normalisation
+    data input is size (256x256xn) where n is no. of accepted examples after wasserstein check
     """
-    shift_val = data.min().abs()
-    max_val = torch.max(data + data.min().abs())
-    return (data + data.min().abs()) / torch.max(data + data.min().abs()), shift_val, max_val
+    assert data.min() >= 0, "Input data for normalisation contains negative values!"
+    min_data = data.view(256*256, -1).min(dim=0)[0]
+    data -= min_data.unsqueeze(0).unsqueeze(0)
+    max_data = data.view(256*256, -1).max(dim=0)[0]
+    data /= max_data.unsqueeze(0).unsqueeze(0)
+    # shift space between 1-buffer and buffer so we don't lose scattering data
+    return (data * (1-buffer)) + buffer
 
-def prep_dataset(directory, artefact_folder="/home/lrudden/ML-DiffuseReader/Artefacts/", wasserstein_cutoff=6.2E-11, integer_leaps=16):
+def randomise_arty(art, no_images=144):
+    """
+    art should have a size of 256x256x256x6.
+    We want 144 256x256 images as output to use on our data. Choose a random slice from the 4th axis first
+    (different set of artefacts), then select first from x, then y, then z a random slice using a random no.
+    from a normal dist.
+    """
+    slices = torch.empty(256, 256, 1)
+    loop = int(no_images / 3) # for each axis
+    for s in range(loop): # loop through x, y then z
+        select = np.random.randint(6)
+        # use a normal dist to select where (so more likely in the centre)
+        dim_select = np.random.normal(loc=0.5, scale=0.152)
+        if dim_select > 1: dim_select = 1
+        elif dim_select < 0: dim_select = 0
+        dim_select = int(dim_select * 255)
+        slices = torch.cat((slices, art[dim_select, :, :, select].unsqueeze(-1)), dim=2)
+    # now do the same for y and z
+    for s in range(loop): # loop through x, y then z
+        select = np.random.randint(6)
+        # use a normal dist to select where (so more likely in the centre)
+        dim_select = np.random.normal(loc=0.5, scale=0.152)
+        if dim_select > 1: dim_select = 1
+        elif dim_select < 0: dim_select = 0
+        dim_select = int(dim_select * 255)
+        slices = torch.cat((slices, art[:, dim_select, :, select].unsqueeze(-1)), dim=2)    
+    for s in range(loop): # loop through x, y then z
+        select = np.random.randint(6)
+        # use a normal dist to select where (so more likely in the centre)
+        dim_select = np.random.normal(loc=0.5, scale=0.152)
+        if dim_select > 1: dim_select = 1
+        elif dim_select < 0: dim_select = 0
+        dim_select = int(dim_select * 255)
+        slices = torch.cat((slices, art[:, :, dim_select, select].unsqueeze(-1)), dim=2)        
+
+    # shuffle output 
+    idx = torch.randperm(no_images)
+    slices = slices[:,:,1:]
+    return slices[:,:,idx]
+
+def prep_dataset(directory, molcode, artefact_folder="/home/lrudden/ML-DiffuseReader/Artefacts/", wasserstein_cutoff=6.7E-11):
     """
     Loop through all numpy 3D arrays in folder and create larger array with each individual (correct) slice
     Choose what to extract here based on wasserstein metric (i.e. if greater than the cutoff, keep)
     Base wasserstein cutoff on random data? Or from difference between two completely different scattering sets...
-    Should really be an average I think across lots of measured data
-    # Consider every integer_leaps in scattering data 
+    
+    We have 12 sets of concentrations generated, each with 12 images
+    So we need 144 sets of artefacts, decided randomly but along the three dimensions
+    so 48 artefacts along each dimension (decided randomly)
+    
+    molcode: which set of arrays for a molecule am I reading in?
+
     """
 
     # preload all artefacts and split into units of 16
-    arty = torch.empty(256,256,1)
+    arty = torch.empty(256,256,256,1)
     afolder = os.fsencode(artefact_folder)
     afiles = [str(os.fsdecode(x)) for x in os.listdir(afolder) if os.fsdecode(x).endswith(".npy")]
+    # Take 12 random artefact slices 
     for afile in afiles:
-        arty = torch.cat((arty, torch.tensor(np.load(artefact_folder + afile)[:, :, ::16])), dim=2)
-    arty = arty[:, :, 1:]
+        arty = torch.cat((arty, torch.tensor(np.load(artefact_folder + afile)).unsqueeze(-1)), dim=3)
+    arty = arty[:, :, :, 1:]
+    # now randomly select 144 slices from the arty array to apply to our images down the line
+    arty = randomise_arty(arty)
 
     folder = os.fsencode(directory)
-    dir_files = [str(os.fsdecode(x).split(".")[0]) for x in os.listdir(directory) if os.fsdecode(x).endswith("Scat.npy")]
+    dir_files = [str(os.fsdecode(x).split(".npy")[0]) for x in os.listdir(directory) if os.fsdecode(x).endswith("scat.npy") and molcode in os.fsdecode(x)]
     
     # assuming 256 size input
     scat_data_all = torch.empty((256, 256, 1))
     SRO_data_all = torch.empty((256, 256, 1))
     dFF_data_all = torch.empty((256, 256, 1))
-    arty_record = torch.empty((256, 256, 1))
     for x, file in enumerate(sorted(dir_files)):
-        scat_data, SRO_data, dFF_data = load_data(directory, file, integer_leaps)
+        scat_data, SRO_data, dFF_data = load_data(directory, file)
+
+        # Apply artefacts at the END, i.e. don't include then in wasserstein checks
+
+        # check the wasserstein distance between scat data. If the same, discard
+        # Otherwise, save and combine with artefact at very end
         scat_data_norm = normalise_data_sum(scat_data) # temp norm for wasserstein 
-
-        # tile the last axis (integer leaps in length) by number artefacts to create new artefact arrays
-        scat_data = torch.tile(scat_data, (1,1,len(afiles)))  
-        scat_data_norm = torch.tile(scat_data_norm, (1,1,len(afiles))) # use to check dist shift
-        SRO_data = torch.tile(SRO_data, (1,1,len(afiles)))
-        dFF_data = torch.tile(dFF_data, (1,1,len(afiles)))
-
-        # apply artefacts - check impact of them on wasser dist, but then reapply at end for learning
-        scat_data_norm = artefact_creation(arty, scat_data_norm)
 
         # differences caused by taking pre-slices out from data
         # create wasserstein distance grid
@@ -125,7 +203,7 @@ def prep_dataset(directory, artefact_folder="/home/lrudden/ML-DiffuseReader/Arte
                 if j < i:
                     wass_dist.append(0) # could put as part of for loop but want wass_dist to be matrix
                 else:
-                    wass_dist.append(wasserstein_distance(scat_data_norm[:,:,i], scat_data_norm[:,:,j]))
+                    wass_dist.append(wasserstein_distance(scat_data_norm[:,:,i], scat_data_norm[:,:,j]))        
         wass_dist = np.triu(np.asarray(wass_dist).reshape(scat_data_norm.size()[-1], scat_data_norm.size()[-1])) # only need upper triangle of data
         accepted = np.unique(np.where(wass_dist > wasserstein_cutoff)) # only take when there are big differences
         if len(accepted) == 0: # if there are no good distances, just take the middle slice
@@ -133,16 +211,29 @@ def prep_dataset(directory, artefact_folder="/home/lrudden/ML-DiffuseReader/Arte
             scat_data_all = torch.cat((scat_data_all, scat_data[:,:,unique][:,:,None]), axis=2)
             SRO_data_all = torch.cat((SRO_data_all, SRO_data[:,:,unique][:,:,None]), axis=2)
             dFF_data_all = torch.cat((dFF_data_all, dFF_data[:,:,unique][:,:,None]), axis=2)
-            arty_record = torch.cat((arty_record, arty[:,:,unique][:,:,None]), axis=2)
         else:
             unique = register_unique_slices(scat_data_norm, accepted)
             # use unique to take final slice out
             scat_data_all = torch.cat((scat_data_all, scat_data[:,:,unique]), axis=2)
             SRO_data_all = torch.cat((SRO_data_all, SRO_data[:,:,unique]), axis=2)
-            dFF_data_all = torch.cat((dFF_data_all, dFF_data[:,:,unique]), axis=2)
-            arty_record = torch.cat((arty_record, arty[:,:,unique]), axis=2)
-    
-    return scat_data_all[:,:,1:], SRO_data_all[:,:,1:], dFF_data_all[:,:,1:], arty_record[:,:,1:]
+            dFF_data_all = torch.cat((dFF_data_all, dFF_data[:,:,unique]), axis=2)   
+    scat_data_all = scat_data_all[:,:,1:]
+    SRO_data_all = SRO_data_all[:,:,1:]
+    dFF_data_all = dFF_data_all[:,:,1:]
+
+    # now apply our artifacts to the accepted images
+    final_accepted_size = scat_data_all.size()[-1]
+    arty = arty[:,:,:final_accepted_size]
+
+    # normalise our data between 0.01 and 1 (plus some buffer to account for minimum scattering not being zero)
+    # Each slice needs to be normalised by itself
+    scat_data_all = normalise_data_max(scat_data_all)
+    SRO_data_all = normalise_data_max(SRO_data_all)
+    dFF_data_all = normalise_data_max(dFF_data_all)
+    # Apply artifact to scattering data
+    scat_data_all = artefact_creation(arty, scat_data_all)
+        
+    return scat_data_all, SRO_data_all, dFF_data_all
 
 def grey_plot(data, win="greymap", title="img"):
     """
@@ -192,61 +283,46 @@ def colour_plot(data, title):
     fig.savefig(title + ".png")
     plt.close(fig)
 
-def normalize_one_to_one(data):
+def normalize_one_to_one(D):
     """
     data should be of size 256 x 256
     return normalize between 0 and 1 (will become 0-255 later)
     """
+    data = D.clone()
+    data_min = data.min()
     if data.min() < 0:
         data += data.min().abs()
     else:
         data -= data.min()
+    data_max = data.max()
     data /= data.max()
-    return data #(data * 2) - 1
+    return data, data_min, data_max #(data * 2) - 1
  
-def main(count, readfolder="/home/lrudden/ML-DiffuseReader/dataset/raw_files/", savefolder="/home/lrudden/ML-DiffuseReader/dataset/training/", artifactfolder="/home/lrudden/ML-DiffuseReader/Artefacts/"):
+def main(molcode, readfolder="/home/lrudden/ML-DiffuseReader/dataset/raw_files/", savefolder="/home/lrudden/ML-DiffuseReader/dataset/training/", artifactfolder="/home/lrudden/ML-DiffuseReader/Artefacts/"):
     """
     count is the current image integer to differentiate between images (not related to cnt_d)
     """
     # dFF * SRO gives the scattering target
 
-    scat_data, SRO_data, dFF_data, arty = prep_dataset(readfolder, artefact_folder=artifactfolder)
-    #TODO: something worth checking is the self wasserstein distance between this set
+    # prep our data to create images (internal wasserstein checks are performed)
+    scat_data, SRO_data, dFF_data = prep_dataset(readfolder, molcode, artefact_folder=artifactfolder)
+    # They should come out normalised (between buffer and 1) and with artefacts applied to scattering data
+    np.save(savefolder + "dFF/" + molcode + "_" + "dFF.npy", dFF_data.numpy().astype(np.float32))
+    np.save(savefolder + "SRO/" + molcode + "_" + "SRO.npy", SRO_data.numpy().astype(np.float32))
+    np.save(savefolder + "Scattering/" + molcode + "_" + "scat.npy", scat_data.numpy().astype(np.float32))
+    # save normalised output in another folder
 
-    # now normalise for each tensor, we need the terms to unnormalise later
-    #scat_data_norm, scat_shift_val, scat_max_val = normalise_data_max(scat_data)
-    #SRO_data_norm, SRO_shift_val, SRO_max_val = normalise_data_max(SRO_data)
-    #dFF_data_norm, dFF_shift_val, dFF_max_val = normalise_data_max(dFF_data)
-
-    # save normalisation parameters
-    #np.save(savefolder + "scat_shift_val.npy", scat_shift_val); np.save(savefolder + "SRO_shift_val.npy", SRO_shift_val); np.save(savefolder + "dFF_shift_val.npy", dFF_shift_val)
-    #np.save(savefolder + "scat_max_val.npy", scat_max_val); np.save(savefolder + "SRO_max_val.npy", SRO_max_val); np.save(savefolder + "dFF_max_val.npy", dFF_max_val)
-    # save tensors of big arrays
-    #np.save(savefolder + "scat_data_norm.npy", scat_data_norm); np.save(savefolder + "SRO_data_norm.npy", SRO_data_norm); np.save(savefolder + "dFF_data_norm.npy", dFF_data_norm)
-
-    # load in
-    #scat_data_norm = torch.tensor(np.load(savefolder + "scat_data_norm.npy"))
-    #SRO_data_norm = torch.tensor(np.load(savefolder + "SRO_data_norm.npy"))
-    #dFF_data_norm = torch.tensor(np.load(savefolder + "dFF_data_norm.npy"))
-
+    """
     # now save data as images
     for cnt_d in range(scat_data.size()[-1]):
-        # normalize between -1 and 1, exact constant don't matter as relative intensities are more important
-        nice_slice_scat = normalize_one_to_one(scat_data[:,:,cnt_d])
-        nice_slice_SRO = normalize_one_to_one(SRO_data[:,:,cnt_d])
-        nice_slice_dFF = normalize_one_to_one(dFF_data[:,:,cnt_d])
-        nice_slice_scat = artefact_creation(arty[:,:,cnt_d], nice_slice_scat)
         # Scattering
-        colour_plot(nice_slice_scat, title=savefolder + "Scattering/img_%04d"%(count))
-        Image.open(savefolder + "Scattering/img_%04d.png"%(count)).convert('RGB').save(savefolder + "Scattering/img_%04d.png"%(count))
+        colour_plot(scat_data[:,:,cnt_d], title=savefolder + "Scattering/img_%06d"%(count))
+        Image.open(savefolder + "Scattering/img_%06d.png"%(count)).convert('RGB').save(savefolder + "Scattering/img_%06d.png"%(count))
         # SRO
-        colour_plot(nice_slice_SRO, title=savefolder + "SRO/img_%04d"%(count))
-        Image.open(savefolder + "SRO/img_%04d.png"%(count)).convert('RGB').save(savefolder + "SRO/img_%04d.png"%(count))
+        colour_plot(SRO_data[:,:,cnt_d], title=savefolder + "SRO/img_%06d"%(count))
+        Image.open(savefolder + "SRO/img_%06d.png"%(count)).convert('RGB').save(savefolder + "SRO/img_%06d.png"%(count))
         # dFF (technically 66% redundant but easier to manage this way)
-        colour_plot(nice_slice_dFF, title=savefolder + "dFF/img_%04d"%(count))
-        Image.open(savefolder + "dFF/img_%04d.png"%(count)).convert('RGB').save(savefolder + "dFF/img_%04d.png"%(count))
+        colour_plot(dFF_data[:,:,cnt_d], title=savefolder + "dFF/img_%06d"%(count))
+        Image.open(savefolder + "dFF/img_%06d.png"%(count)).convert('RGB').save(savefolder + "dFF/img_%06d.png"%(count))
         count += 1
-
-    return count # return count to start next round of image generation for next molecule
-
-#TODO: benchmark the wasserstein cutoff distance more throughly
+    """

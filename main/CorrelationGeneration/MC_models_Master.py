@@ -68,7 +68,7 @@ CELL,BOX_SIZE,USE_PADDING,SITES,SITE_ATOMS,SITE_VARIANTS,VARIANT_ABUNDANCE,TARGE
 
 # Create IJK list
 IJK = SRO_sum.pre_gen_ijk(7, 7, 7)
-np.save("IJK_vectors.npy", np.asarray(IJK))
+np.save("IJK_vectors_%i.npy"%run, np.asarray(IJK))
 # Add padding to account for running checks between -I and I+1
 SHIFT = [7+2, 7+2, 7+2]
 
@@ -87,7 +87,7 @@ args = Namespace(CELL=CELL, BOX_SIZE=BOX_SIZE, USE_PADDING=USE_PADDING, SITES=SI
 t0 = time.time()
 alpha_list = []
 abundance_target_list = []
-for n in range(250):
+for n in range(125):
     for C in range(3): # concentration / variant abundance
         VARIANT_ABUNDANCE[0] = (random.random() * 0.4) + 0.1
         minAlpha = max(- VARIANT_ABUNDANCE[0] / (1 - VARIANT_ABUNDANCE[0]), -0.6)
@@ -116,7 +116,7 @@ for n in range(250):
             alpha_list.append(alpha)
             abundance_target_list.append(VARIANT_ABUNDANCE + TARGET_CORRELATIONS) #  last three numbers in each row are therefore the target correlations
 
-    np.save("Alphas.npy", np.asarray(alpha_list))
-    np.save("Abundance_Target_list.npy", np.asarray(abundance_target_list))
+    np.save("Alphas_%i.npy"%run, np.asarray(alpha_list))
+    np.save("Abundance_Target_list_%i.npy"%run, np.asarray(abundance_target_list))
     print(">> Run %i took %.2f seconds"%(int(n), time.time() - t0))
 

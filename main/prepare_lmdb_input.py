@@ -172,18 +172,40 @@ def read_images(folder: str, tag: str, max_num: int) -> np.array:
             print(">> %.2f completed"%(n * 100 /max_num))
     return np.asarray(images).astype(np.uint8)
 
+def read_arrays(folder: str, tag: str) -> np.array:
+    """
+    Folder, conditional folder location of numpy array (post normalisation), it is the base array before Scattering or tag sep
+    tag is dFF or SRO
+    """
+    # read in essentially random order (depending on what fs.encode decides to do)
+    images = []
+    afolder = os.fsencode(folder + "/Scattering")
+    dir_files = [str(os.fsdecode(x).split("_scat.npy")[0]) for x in os.listdir(afolder) if os.fsdecode(x).endswith("scat.npy")]
+    for f in dir_files:
+        image0 = np.load(folder + "/Scattering/%s_scat.npy"%(f)) # conditional input
+        image1 = np.load(folder + "/%s/%s_%s.npy"%(tag, f, tag)) # the dFF or SRO are the target (from the scattering data)
+        images.append(staple_image(image0, image1))
+    return np.concatenate(images, axis=2)
+
 if __name__ == "__main__":
 
     # naming convention of input files
     # DiffuseScattering00001.npy, DiffuseScattering00002.npy... DiffuseScattering09999.npy and so on (5 digits)
 
-    trainingfolder = "/data/lrudden/ML-DiffuseReader/dataset/training/"
-    max_num = 1027899
+    # load in each group and cat together
 
-    images_dFF = read_images(trainingfolder, "dFF", max_num)
+    trainingfolder = "/data/lrudden/ML-DiffuseReader/dataset/training/"
+
+    images_dFF = read_arrays(trainingfolder + str(0), "dFF")
+    images_SRO = read_arrays(trainingfolder + str(0), "SRO")
+    groups = 5
+    for g in range(1, groups):
+        loadfolder = trainingfolder + str(g)
+        images_dFF_tmp = read_arrays(loadfolder, "dFF")
+        images_SRO_tmp = read_arrays(loadfolder, "SRO")
+        images_dFF = np.concatenate((images_dFF, images_dFF_tmp), axis=2)
+        images_SRO = np.concatenate((images_SRO, images_SRO_tmp), axis=2)
     store_many_lmdb(images_dFF, trainingfolder + "train_lmdb_dFF")
-    del images_dFF
-    images_SRO = read_images(trainingfolder, "SRO", max_num)
     store_many_lmdb(images_SRO, trainingfolder + "train_lmdb_SRO")
 
     # for testing
