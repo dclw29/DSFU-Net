@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 def num_samples(dataset, train):
     if dataset == "scattering":
         # 100 for testing
-        return 205578 if train else 1000 # this number is specific to the number of TM examples we have for training
+        return 146481 if train else 1000 # this number is specific to the number of TM examples we have for training
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
 
@@ -70,6 +70,7 @@ class LMDBDataset(data.Dataset):
 
             #data = txn.get(str(index).encode())
             data = txn.get(f"{index:08}".encode())
+            #data = txn.get(f"{index:08}".encode("ascii"))
 
             if self.is_encoded:
                 img = Image.open(io.BytesIO(data))
@@ -80,11 +81,10 @@ class LMDBDataset(data.Dataset):
 
         if self.transform is not None:
             imgA, imgB = img 
-            image_A = self.transform(imgA)
-            image_B = self.transform(imgB)
+            image_A = self.transform(np.array(imgA))
+            image_B = self.transform(np.array(imgB))
         else:
             image_A, image_B = img 
-
         return {"A": image_A, "B": image_B}
 
     def __len__(self):
@@ -97,23 +97,22 @@ class LMDB_Image:
         # Dimensions of image for reconstruction - not really necessary
         # for this dataset, but some datasets may include images of
         # varying sizes
-        self.channels = image.shape[2]
-        self.size = image.shape[:2]
+        self.size = image.shape
         self.image = image.tobytes()
 
         #TODO need test information also
 
     def getimage(self):
 
-        image = np.frombuffer(self.image, dtype=np.uint8)
-        image = image.reshape(self.size + (self.channels,))
+        image = self.image #np.frombuffer(self.image, dtype=np.float32)
+        image = image.reshape(self.size)
         h, w = self.size 
-        image_A = image[:, : int(w / 2), :]
-        image_B = image[:, int(w / 2) :, :]
+        image_A = image[:, : int(w / 2)]
+        image_B = image[:, int(w / 2) :]
         #image_A = image.crop((0, 0, w / 2, h)) # note w/2 here, in other words, target image needs to be on the right
         #image_B = image.crop((w / 2, 0, w, h))  
-        image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
-        image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
+        #image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
+        #image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
 
         return image_A, image_B  
 
@@ -122,7 +121,7 @@ def store_many_lmdb(images, lmdb_dir="/home/lrudden/ML-DiffuseReader/dataset/tra
         https://realpython.com/storing-images-in-python/#storing-to-lmdb
         Parameters:
         ---------------
-        images       images array, (N, M, Mx2, 3) to be stored (2 x along width because of stapling)
+        images       images array, (N, H, Wx2) to be stored (2 x along width because of stapling)
     """
     num_images = len(images)
 
@@ -194,18 +193,26 @@ if __name__ == "__main__":
 
     # load in each group and cat together
 
-    trainingfolder = "/data/lrudden/ML-DiffuseReader/dataset/training/"
+    trainingfolder = "/scratch/dclw/ML-DiffuseReader/dataset/training/"
 
     images_dFF = read_arrays(trainingfolder + str(0), "dFF")
-    images_SRO = read_arrays(trainingfolder + str(0), "SRO")
     groups = 5
     for g in range(1, groups):
         loadfolder = trainingfolder + str(g)
         images_dFF_tmp = read_arrays(loadfolder, "dFF")
-        images_SRO_tmp = read_arrays(loadfolder, "SRO")
         images_dFF = np.concatenate((images_dFF, images_dFF_tmp), axis=2)
-        images_SRO = np.concatenate((images_SRO, images_SRO_tmp), axis=2)
+    images_dFF = np.swapaxes(np.swapaxes(images_dFF, -1, 0), 1, 2)
     store_many_lmdb(images_dFF, trainingfolder + "train_lmdb_dFF")
+
+    del images_dFF
+    del images_dFF_tmp
+
+    images_SRO = read_arrays(trainingfolder + str(0), "SRO")
+    for g in range(1, groups):
+        loadfolder = trainingfolder + str(g)
+        images_SRO_tmp = read_arrays(loadfolder, "SRO")
+        images_SRO = np.concatenate((images_SRO, images_SRO_tmp), axis=2)
+    images_SRO = np.swapaxes(np.swapaxes(images_SRO, -1, 0), 1, 2)
     store_many_lmdb(images_SRO, trainingfolder + "train_lmdb_SRO")
 
     # for testing

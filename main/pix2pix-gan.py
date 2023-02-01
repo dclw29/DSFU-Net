@@ -44,25 +44,20 @@ class LMDB_Image:
         # Dimensions of image for reconstruction - not really necessary
         # for this dataset, but some datasets may include images of
         # varying sizes
-        self.channels = image.shape[2]
-        self.size = image.shape[:2]
+        self.size = image.shape
         self.image = image.tobytes()
 
         #TODO need test information also
 
     def getimage(self):
 
-        image = np.frombuffer(self.image, dtype=np.uint8)
-        image = image.reshape(self.size + (self.channels,))
-        h, w = self.size 
-        image_A = image[:, : int(w / 2), :]
-        image_B = image[:, int(w / 2) :, :]
-        #image_A = image.crop((0, 0, w / 2, h)) # note w/2 here, in other words, target image needs to be on the right
-        #image_B = image.crop((w / 2, 0, w, h))  
-        image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
-        image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
+        image = np.frombuffer(self.image, dtype=np.float32)
+        image = image.reshape(self.size)
+        h, w = self.size
+        image_A = image[:, : int(w / 2)]
+        image_B = image[:, int(w / 2) :]
 
-        return image_A, image_B  
+        return image_A, image_B
 
 def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_SRO, opt, save_loc):
     """Saves a generated sample - should be from validation set"""
@@ -78,8 +73,8 @@ def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_S
     img_sample_dFF = torch.cat((real_A_dFF.data, fake_B_dFF.data, real_B_dFF.data), -1) # create big sample to save
     img_sample_SRO = torch.cat((real_A_SRO.data, fake_B_SRO.data, real_B_SRO.data), -1)
 
-    save_image(img_sample_dFF, save_loc + "/../images/%s/%s_dFF.png" % (opt.experiment_name, batches_done), nrow=5, normalize=True)
-    save_image(img_sample_SRO, save_loc + "/../images/%s/%s_SRO.png" % (opt.experiment_name, batches_done), nrow=5, normalize=True)
+    save_image(img_sample_dFF, save_loc + "/../images/%s/%s_dFF.png" % (opt.experiment_name, str(batches_done)), nrow=5, normalize=True)
+    save_image(img_sample_SRO, save_loc + "/../images/%s/%s_SRO.png" % (opt.experiment_name, str(batches_done)), nrow=5, normalize=True)
 
 def train_GD(optimizer_G, optimizer_D, batch, generator, discriminator, patch, criterion_GAN, criterion_pixelwise, opt):
     """
@@ -199,15 +194,15 @@ class Train:
         self.sample_interval = opt.sample_interval
         self.checkpoint_interval = opt.checkpoint_interval
         self.log_interval = opt.log_interval
+        self.gpu = opt.gpu
 
         if torch.cuda.is_available():
-            #cuda = torch.device('cuda:{}'.format(gpu))
-            cuda = torch.device('cuda:1')  # cuda device
+            cuda = torch.device('cuda:{}'.format(self.gpu))
+            #cuda = torch.device('cuda:1')  # cuda device
 
         # locations of training and test data
         file_loc = "/data/lrudden/ML-DiffuseReader"
         training_loc = self.dataset_name
-        test_loc = file_loc + "/dataset/test"
         save_loc = file_loc + "/RUN/saved_models"
         self.save_loc = save_loc
         
@@ -224,10 +219,10 @@ class Train:
         self.patch = (1, opt.img_height // 2 ** 4, opt.img_width // 2 ** 4)
 
         # Initialize generators and discriminators
-        self.generator_dFF = GeneratorUNet()
-        self.discriminator_dFF = Discriminator()
-        self.generator_SRO = GeneratorUNet()
-        self.discriminator_SRO = Discriminator()
+        self.generator_dFF = GeneratorUNet(in_channels=self.channels, out_channels=self.channels)
+        self.discriminator_dFF = Discriminator(in_channels=self.channels)
+        self.generator_SRO = GeneratorUNet(in_channels=self.channels, out_channels=self.channels)
+        self.discriminator_SRO = Discriminator(in_channels=self.channels)
         
         if cuda:
             self.generator_dFF = self.generator_dFF.cuda()
@@ -260,12 +255,11 @@ class Train:
         
         transforms_ = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Normalize((0.5), (0.5)),
         ]
         
         self.dataset_dFF = LMDBDataset(root=training_loc + '/train_lmdb_dFF', 
                               name='scattering', train=True, transform=transforms_, is_encoded=False)
-        #TODO setup distributed training
         self.train_sampler_dFF = torch.utils.data.distributed.DistributedSampler(self.dataset_dFF,
                                                                         num_replicas=self.world_size,
                                                                         rank=self.rank)
@@ -277,9 +271,9 @@ class Train:
                                                       sampler=self.train_sampler_dFF,
                                                       drop_last = True)
         
+
         self.dataset_SRO = LMDBDataset(root=training_loc + '/train_lmdb_SRO', 
                               name='scattering', train=True, transform=transforms_, is_encoded=False)
-        #TODO setup distributed training
         self.train_sampler_SRO = torch.utils.data.distributed.DistributedSampler(self.dataset_SRO,
                                                                         num_replicas=self.world_size,
                                                                         rank=self.rank)
@@ -308,6 +302,7 @@ class Train:
 
         for epoch in range(self.epoch, self.n_epochs):
             for i, batch in enumerate(zip(self.data_loader_dFF, self.data_loader_SRO)):
+
                 batch_dFF, batch_SRO = batch
         
                 self.optimizer_G_dFF, self.optimizer_D_dFF, self.generator_dFF, self.discriminator_dFF, loss_dFF = train_GD(self.optimizer_G_dFF, self.optimizer_D_dFF, batch_dFF, self.generator_dFF, self.discriminator_dFF, self.patch, self.criterion_GAN, self.criterion_pixelwise, self.opt)
@@ -332,7 +327,7 @@ class Train:
         
                     # Print log
                     sys.stdout.write(
-                        "\r[Epoch %d/%d] [Batch %d/%d] [dFF D loss: %f] [dFF G loss: %f, pixel: %f, adv: %f] [SRO D loss: %f] [SRO G loss: %f, pixel: %f, adv: %f] [Scat loss: %f] ETA: %s"
+                        "\r[Epoch %d/%d] [Batch %d/%d] [dFF D loss: %f] [dFF G loss: %f, pixel: %f, adv: %f] [SRO D loss: %f] [SRO G loss: %f, pixel: %f, adv: %f] [Scat loss: %f] ETA: %s\n"
                         % (
                             epoch,
                             opt.n_epochs,
@@ -350,10 +345,14 @@ class Train:
                             time_left,
                         )
                     )
-        
+                    
+                    sys.stdout.flush() 
+
                 # If at sample interval save image
-                if batches_done % opt.sample_interval == 0:
-                    sample_images(batches_done, batch_dFF, batch_SRO, self.generator_dFF, self.generator_SRO, opt, self.save_loc)
+                #if batches_done % opt.sample_interval == 0:
+                #    sample_images(batches_done, batch_dFF, batch_SRO, self.generator_dFF, self.generator_SRO, opt, self.save_loc)
+            # if at end of epoch, save image
+            sample_images(epoch, batch_dFF, batch_SRO, self.generator_dFF, self.generator_SRO, opt, self.save_loc)
         
             if self.checkpoint_interval != -1 and epoch % self.checkpoint_interval == 0 and opt.sample_interval == 0:
                 # Save model checkpoints
@@ -372,7 +371,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
     parser.add_argument("--dataset_name", type=str, default="/data/lrudden/ML-DiffuseReader/dataset/training/", help="name of the dataset")
     parser.add_argument("--experiment_name", type=str, default="first_test", help="name of expt")
-    parser.add_argument("--batch_size", type=int, default=16, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=32, help="size of the batches")
     parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
     parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -380,7 +379,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_height", type=int, default=256, help="size of image height")
     parser.add_argument("--img_width", type=int, default=256, help="size of image width")
-    parser.add_argument("--channels", type=int, default=3, help="number of image channels")
+    parser.add_argument("--channels", type=int, default=1, help="number of image channels")
     parser.add_argument(
         "--sample_interval", type=int, default=1000, help="interval between sampling of images from generators"
     )
@@ -389,6 +388,8 @@ if __name__ == "__main__":
     parser.add_argument("--rank", type=int, default=0, help="GPU rank of process")
     parser.add_argument("--world_size", type=int, default=1, help="Total number of GPUs being trained on")
     parser.add_argument("--lambda_pixel", type=int, default=100, help="Lambda pixel smoother weight")
+
+    parser.add_argument("--gpu", type=int, default=0, help="GPU ID")
     opt = parser.parse_args()
 
     T = Train(opt)
