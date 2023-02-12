@@ -1,5 +1,7 @@
 """
 Adapted from: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/pix2pix.py
+Include some self-attn into discriminator and generator, and spectral normalisation elsewhere for more stable training
+https://towardsdatascience.com/building-your-own-self-attention-gans-e8c9b9fe8e51
 """
 
 import argparse
@@ -59,8 +61,8 @@ def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_S
     real_A_SRO = Variable(batch_SRO["A"].type(Tensor))
     real_B_SRO = Variable(batch_SRO["B"].type(Tensor))
 
-    fake_B_dFF = generator_dFF(real_A_dFF)
-    fake_B_SRO = generator_SRO(real_A_SRO)
+    fake_B_dFF, _, _ = generator_dFF(real_A_dFF)
+    fake_B_SRO, _, _ = generator_SRO(real_A_SRO)
 
     # need to double check ordering of datasamples
     img_sample_dFF = torch.cat((real_A_dFF.data, fake_B_dFF.data, real_B_dFF.data), -1) # create big sample to save
@@ -88,8 +90,8 @@ def train_GD(optimizer_G, optimizer_D, batch, generator, discriminator, patch, c
     optimizer_G.zero_grad()
 
     # GAN loss
-    fake_B = generator(real_A)
-    pred_fake = discriminator(fake_B, real_A)
+    fake_B, GA1, GA2 = generator(real_A) # GA1 GA2 are attention maps from two points in UNET
+    pred_fake = discriminator(fake_B, real_A) 
     loss_GAN = criterion_GAN(pred_fake, valid)
     # Pixel-wise loss
     loss_pixel = criterion_pixelwise(fake_B, real_B)
@@ -108,7 +110,7 @@ def train_GD(optimizer_G, optimizer_D, batch, generator, discriminator, patch, c
     optimizer_D.zero_grad()
 
     # Real loss
-    pred_real = discriminator(real_B, real_A)
+    pred_real = discriminator(real_B, real_A) # D1 is attention map from discrim
     loss_real = criterion_GAN(pred_real, valid)
 
     # Fake loss
@@ -219,10 +221,10 @@ class Train:
         self.patch = (1, opt.img_height // 2 ** 4, opt.img_width // 2 ** 4)
 
         # Initialize generators and discriminators
-        self.generator_dFF = GeneratorUNet(in_channels=self.channels, out_channels=self.channels)
-        self.discriminator_dFF = Discriminator(in_channels=self.channels)
-        self.generator_SRO = GeneratorUNet(in_channels=self.channels, out_channels=self.channels)
-        self.discriminator_SRO = Discriminator(in_channels=self.channels)
+        self.generator_dFF = GeneratorUNet_Attn(in_channels=self.channels, out_channels=self.channels)
+        self.discriminator_dFF = Discriminator_Attn(in_channels=self.channels)
+        self.generator_SRO = GeneratorUNet_Attn(in_channels=self.channels, out_channels=self.channels)
+        self.discriminator_SRO = Discriminator_Attn(in_channels=self.channels)
         
         if cuda:
             self.generator_dFF = self.generator_dFF.cuda()
@@ -242,10 +244,12 @@ class Train:
             self.discriminator_SRO.load_state_dict(torch.load(save_loc + "/%s/discriminator_SRO_%d.pth" % (self.experiment_name, self.epoch)))
         else:
             # Initialize weights
-            self.generator_dFF.apply(weights_init_normal)
-            self.discriminator_dFF.apply(weights_init_normal)
-            self.generator_SRO.apply(weights_init_normal)
-            self.discriminator_SRO.apply(weights_init_normal)
+            # Doesn't work with spectral norm
+            #self.generator_dFF.apply(weights_init_normal)
+            #self.discriminator_dFF.apply(weights_init_normal)
+            #self.generator_SRO.apply(weights_init_normal)
+            #self.discriminator_SRO.apply(weights_init_normal)
+            pass
 
         # Optimizers
         self.optimizer_G_dFF = torch.optim.Adam(self.generator_dFF.parameters(), lr=self.lr, betas=(self.b1, self.b2))
@@ -260,30 +264,32 @@ class Train:
         
         self.dataset_dFF = LMDBDataset(root=training_loc + '/train_lmdb_dFF', 
                               name='scattering', train=True, transform=transforms_, is_encoded=False)
-        self.train_sampler_dFF = torch.utils.data.distributed.DistributedSampler(self.dataset_dFF,
-                                                                        num_replicas=self.world_size,
-                                                                        rank=self.rank)
+        #self.train_sampler_dFF = torch.utils.data.distributed.DistributedSampler(self.dataset_dFF,
+        #                                                                num_replicas=self.world_size,
+        #                                                                rank=self.rank)
         self.data_loader_dFF = torch.utils.data.DataLoader(self.dataset_dFF,
                                                       batch_size=self.batch_size,
                                                       shuffle=False,
                                                       num_workers=self.n_cpu,
                                                       pin_memory=True,
-                                                      sampler=self.train_sampler_dFF,
-                                                      drop_last = True)
+                                                      drop_last=True)
+                                                      #sampler=self.train_sampler_dFF,
+                                                      #drop_last = True)
         
 
         self.dataset_SRO = LMDBDataset(root=training_loc + '/train_lmdb_SRO', 
                               name='scattering', train=True, transform=transforms_, is_encoded=False)
-        self.train_sampler_SRO = torch.utils.data.distributed.DistributedSampler(self.dataset_SRO,
-                                                                        num_replicas=self.world_size,
-                                                                        rank=self.rank)
+        #self.train_sampler_SRO = torch.utils.data.distributed.DistributedSampler(self.dataset_SRO,
+        #                                                                num_replicas=self.world_size,
+        #                                                                rank=self.rank)
         self.data_loader_SRO = torch.utils.data.DataLoader(self.dataset_SRO,
                                                       batch_size=self.batch_size,
                                                       shuffle=False,
                                                       num_workers=self.n_cpu,
                                                       pin_memory=True,
-                                                      sampler=self.train_sampler_SRO,
                                                       drop_last = True)
+                                                      #sampler=self.train_sampler_SRO,
+                                                      #drop_last = True)
         
         # validation dataset
         #val_dataloader = DataLoader(
@@ -292,7 +298,7 @@ class Train:
         #    shuffle=True,
         #    num_workers=1,
         #)
-
+        
     def train(self):
         """
         Train the network based on self parameters
@@ -304,10 +310,9 @@ class Train:
             for i, batch in enumerate(zip(self.data_loader_dFF, self.data_loader_SRO)):
 
                 batch_dFF, batch_SRO = batch
-        
                 self.optimizer_G_dFF, self.optimizer_D_dFF, self.generator_dFF, self.discriminator_dFF, loss_dFF = train_GD(self.optimizer_G_dFF, self.optimizer_D_dFF, batch_dFF, self.generator_dFF, self.discriminator_dFF, self.patch, self.criterion_GAN, self.criterion_pixelwise, self.opt)
                 self.optimizer_G_SRO, self.optimizer_D_SRO, self.generator_SRO, self.discriminator_SRO, loss_SRO = train_GD(self.optimizer_G_SRO, self.optimizer_D_SRO, batch_SRO, self.generator_SRO, self.discriminator_SRO, self.patch, self.criterion_GAN, self.criterion_pixelwise, self.opt)
-        
+                
                 # calculate overall scattering and see how close we are (optimise generators accordingly)
                 # this is a little bit of cheating over discrim so may need to adjust discrim strength
                 self.optimizer_G_dFF, self.generator_dFF, self.optimizer_G_SRO, self.generator_SRO, loss_scat = train_both_scat(self.optimizer_G_dFF, batch_dFF, self.generator_dFF, self.optimizer_G_SRO, batch_SRO, self.generator_SRO, self.Scat_Loss, self.opt)
