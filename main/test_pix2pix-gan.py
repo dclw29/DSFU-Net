@@ -34,30 +34,26 @@ import torch
 class LMDB_Image:
     def __init__(self, image, mode="train"):
 
-        # Dimensions of image for reconstruction - not really necessary
-        # for this dataset, but some datasets may include images of
-        # varying sizes
         self.size = image.shape
         self.image = image.tobytes()
 
-        #TODO need test information also
-
     def getimage(self):
 
-        image = np.frombuffer(self.image, dtype=np.float32)
+        image = np.frombuffer(self.image, dtype=np.float32) #self.image 
         image = image.reshape(self.size)
         h, w = self.size
-        image_A = image[:, : int(w / 2)]
-        image_B = image[:, int(w / 2) :]
+        image_A = image[:, : int(w / 3)]
+        image_B = image[:, int(w / 3) : 2*int(w / 3)]
+        image_C = image[:, 2*int(w / 3):]
 
-        return image_A, image_B
+        return image_A, image_B, image_C
 
 def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_SRO, opt, save_loc):
     """Saves a generated sample - should be from validation set"""
-    real_A_dFF = Variable(batch_dFF["A"].type(Tensor))
-    real_B_dFF = Variable(batch_dFF["B"].type(Tensor))
-    real_A_SRO = Variable(batch_SRO["A"].type(Tensor))
-    real_B_SRO = Variable(batch_SRO["B"].type(Tensor))
+    real_A_dFF = inverse_spread(Variable(batch_dFF["A"].type(Tensor)))
+    real_B_dFF = inverse_spread(Variable(batch_dFF["B"].type(Tensor)))
+    real_A_SRO = inverse_spread(Variable(batch_SRO["A"].type(Tensor)))
+    real_B_SRO = inverse_spread(Variable(batch_SRO["B"].type(Tensor)))
 
     fake_B_dFF = generator_dFF(real_A_dFF)
     fake_B_SRO = generator_SRO(real_A_SRO)
@@ -68,6 +64,36 @@ def sample_images(batches_done, batch_dFF, batch_SRO, generator_dFF, generator_S
 
     save_image(img_sample_dFF, save_loc + "/%s/slice%s_dFF.png" % (opt.experiment_name, str(batches_done)), nrow=5, normalize=True)
     save_image(img_sample_SRO, save_loc + "/%s/slice%s_SRO.png" % (opt.experiment_name, str(batches_done)), nrow=5, normalize=True)
+
+def inverse_spread(data):
+    """
+    Lots of values are grouped up around -1 (or < -0.95), spread them out
+    """
+
+    min_shift_val=0.
+    max_shift_val=2**0.5
+    #shifted_data = torch.clamp((data + 1 + torch.rand(*data.shape)/1000)**0.1, max=1)
+    shifted_data = (data + 1)**0.5
+    min_shift_val = shifted_data.min() # keep record to unnormalise later, max will still be 1
+    renorm_data_tmp = shifted_data - min_shift_val
+    max_shift_val = renorm_data_tmp.max()
+    renorm_data = (renorm_data_tmp / max_shift_val) * 2 - 1
+    return renorm_data
+
+def reverse_spread(data):
+    """
+    Convert the data back into what we would expect
+    """
+
+    min_shift_val=0.
+    max_shift_val=2**0.5
+
+    # first unnorm
+    unnorm_data_tmp = ((data + 1) / 2) * max_shift_val  # remember 1 would have been max before, so minus min from this
+    unnorm_data = unnorm_data_tmp + min_shift_val
+    # we can't account for the random added noise, so ignore that for now
+    unshifted_data = unnorm_data**2 - 1
+    return unshifted_data
 
 # training class
 class Test:
