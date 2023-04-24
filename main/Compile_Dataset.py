@@ -47,7 +47,17 @@ def load_data(directory, filename):
     scat_data = torch.tensor(np.load(directory + "/" + filename + ".npy"))
     SRO_data = torch.tensor(np.load(directory + "/" + filename[:-4] + "SRO.npy"))
     dFF_data = torch.tensor(np.load(directory + "/" + filename[:-4] + "dFF.npy"))
-    return scat_data, SRO_data, dFF_data
+    # load meta data
+    molcode = np.load(directory + "/" + filename[:-4] + "molcode_metadata.npy")
+    qmax = np.load(directory + "/" + filename[:-4] + "qmax_metadata.npy")
+    m1 = np.load(directory + "/" + filename[:-4] + "m1_metadata.npy")
+    s = np.load(directory + "/" + filename[:-4] + "s_metadata.npy")
+    #a = np.load(directory + "/" + filename[:-4] + "a_metadata.npy")
+    #b = np.load(directory + "/" + filename[:-4] + "b_metadata.npy")
+    #c = np.load(directory + "/" + filename[:-4] + "c_metadata.npy")
+    #corr = np.load(directory + "/" + filename[:-4] + "corr_metadata.npy")
+    #return scat_data, SRO_data, dFF_data, molcode, a, b, c, corr
+    return scat_data, SRO_data, dFF_data, molcode, qmax, m1, s 
 
 def register_unique_slices(data, slices, wasserstein_cutoff=6.7E-11):
     """
@@ -186,8 +196,11 @@ def prep_dataset(directory, molcode, artefact_folder="/home/lrudden/ML-DiffuseRe
     scat_data_all = torch.empty((256, 256, 1))
     SRO_data_all = torch.empty((256, 256, 1))
     dFF_data_all = torch.empty((256, 256, 1))
+    #molcode_all = []; a_all = []; b_all = []; c_all = []; corr_all = []
+    molcode_all = []; qmax_all = []; s_all = []; m1_all = []
     for x, file in enumerate(sorted(dir_files)):
-        scat_data, SRO_data, dFF_data = load_data(directory, file)
+        #scat_data, SRO_data, dFF_data, molcode, a, b, c, corr = load_data(directory, file)
+        scat_data, SRO_data, dFF_data, molcode, qmax, m1, s = load_data(directory, file)
 
         # Apply artefacts at the END, i.e. don't include then in wasserstein checks
 
@@ -217,6 +230,20 @@ def prep_dataset(directory, molcode, artefact_folder="/home/lrudden/ML-DiffuseRe
             scat_data_all = torch.cat((scat_data_all, scat_data[:,:,unique]), axis=2)
             SRO_data_all = torch.cat((SRO_data_all, SRO_data[:,:,unique]), axis=2)
             dFF_data_all = torch.cat((dFF_data_all, dFF_data[:,:,unique]), axis=2)   
+
+            # apply unique to metadata also
+            molcode_all.append(molcode[unique])
+            #a_all.append(a[unique]); b_all.append(b[unique]); c_all.append(c[unique])
+            #corr_all.append(corr[unique])
+            qmax_all.append(qmax[unique])
+            m1_all.append(m1[unique])
+            s_all.append(s[unique])
+
+    molcode_all = np.concatenate(molcode_all)
+    #a_all = np.concatenate(a_all); b_all = np.concatenate(b_all); c_all = np.concatenate(c_all)
+    #corr_all = np.concatenate(corr_all)
+    qmax_all = np.concatenate(qmax_all); m1_all = np.concatenate(m1_all); s_all = np.concatenate(s_all)
+
     scat_data_all = scat_data_all[:,:,1:]
     SRO_data_all = SRO_data_all[:,:,1:]
     dFF_data_all = dFF_data_all[:,:,1:]
@@ -227,13 +254,20 @@ def prep_dataset(directory, molcode, artefact_folder="/home/lrudden/ML-DiffuseRe
 
     # normalise our data between 0.01 and 1 (plus some buffer to account for minimum scattering not being zero)
     # Each slice needs to be normalised by itself
-    scat_data_all = normalise_data_max(scat_data_all)
-    SRO_data_all = normalise_data_max(SRO_data_all)
-    dFF_data_all = normalise_data_max(dFF_data_all)
+    #scat_data_all = normalise_data_max(scat_data_all)
+    #SRO_data_all = normalise_data_max(SRO_data_all)
+    #dFF_data_all = normalise_data_max(dFF_data_all)
+
+    # try normalising between 0 and 1 instead (trying to get SRO to work)
+    scat_data_all = normalise_data_max(scat_data_all, buffer=0)
+    SRO_data_all = normalise_data_max(SRO_data_all, buffer=0)
+    dFF_data_all = normalise_data_max(dFF_data_all, buffer=0)
+
     # Apply artifact to scattering data
-    scat_data_all = artefact_creation(arty, scat_data_all)
+    scat_data_art = artefact_creation(arty, scat_data_all)
         
-    return scat_data_all, SRO_data_all, dFF_data_all
+    #return scat_data_all, SRO_data_all, dFF_data_all, scat_data_art, molcode_all, a_all, b_all, c_all, corr_all
+    return scat_data_all, SRO_data_all, dFF_data_all, scat_data_art, molcode_all, qmax_all, m1_all, s_all
 
 def grey_plot(data, win="greymap", title="img"):
     """
@@ -305,11 +339,26 @@ def main(molcode, readfolder="/home/lrudden/ML-DiffuseReader/dataset/raw_files/"
     # dFF * SRO gives the scattering target
 
     # prep our data to create images (internal wasserstein checks are performed)
-    scat_data, SRO_data, dFF_data = prep_dataset(readfolder, molcode, artefact_folder=artifactfolder)
+    #scat_data, SRO_data, dFF_data, scat_data_art, molcode_all, a, b, c, corr = prep_dataset(readfolder, molcode, artefact_folder=artifactfolder)
+    scat_data, SRO_data, dFF_data, scat_data_art, molcode_all, qmax_all, m1_all, s_all = prep_dataset(readfolder, molcode, artefact_folder=artifactfolder)
     # They should come out normalised (between buffer and 1) and with artefacts applied to scattering data
     np.save(savefolder + "dFF/" + molcode + "_" + "dFF.npy", dFF_data.numpy().astype(np.float32))
     np.save(savefolder + "SRO/" + molcode + "_" + "SRO.npy", SRO_data.numpy().astype(np.float32))
-    np.save(savefolder + "Scattering/" + molcode + "_" + "scat.npy", scat_data.numpy().astype(np.float32))
+    np.save(savefolder + "Scattering/" + molcode + "_" + "scat.npy", scat_data_art.numpy().astype(np.float32))
+    np.save(savefolder + "Scattering/" + molcode + "_" + "scat_clean.npy", scat_data.numpy().astype(np.float32))
+
+    # save smaller metadata
+
+    #np.save(savefolder + "metadata/" + molcode + "_" + "molcode.npy", molcode_all)
+    #np.save(savefolder + "metadata/" + molcode + "_" + "a.npy", a)
+    #np.save(savefolder + "metadata/" + molcode + "_" + "b.npy", b)
+    #np.save(savefolder + "metadata/" + molcode + "_" + "c.npy", c)
+    #np.save(savefolder + "metadata/" + molcode + "_" + "corr.npy", corr)
+    np.save(savefolder + "metadata/" + molcode + "_" + "molcode.npy", molcode_all)
+    np.save(savefolder + "metadata/" + molcode + "_" + "qmax.npy", qmax_all)
+    np.save(savefolder + "metadata/" + molcode + "_" + "m1.npy", m1_all)
+    np.save(savefolder + "metadata/" + molcode + "_" + "s.npy", s_all)
+
     # save normalised output in another folder
 
     """

@@ -3,8 +3,12 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from meta_library_2 import elements, numbers, atomic_SF, molecules
 from itertools import combinations, permutations
-import sys
+import sys, os
 import math
+
+sys.path.append("/data/lrudden/ML-DiffuseReader/main/")
+import re
+import Compile_Dataset
 
 #correlations = np.load("alphas_test.npy")
 #concs = np.load("abundance_list_test.npy")
@@ -126,6 +130,31 @@ def make_q_grids(size,gridSize,Qmax,recip_length,shift=0):
 
     return QVec, Qmag
 
+folder = "/data/lrudden/ML-DiffuseReader/main"
+input_group = 3
+
+TestSet = False
+# Where will we save the data?
+if TestSet:
+    logger = logging.getLogger("log_%s_gen_data_test"%(str(input_group)))
+    fh = logging.FileHandler("%s/logfiles/log_%s_validation.log"%(folder,str(input_group)))
+    savefolder = "%s/../dataset/raw_files/validation/%s/"%(folder,str(input_group))
+    imagefolder = "%s/../dataset/validation/%s/"%(folder,str(input_group))
+else:
+    #logger = logging.getLogger("log_%s_gen_data"%(str(input_group)))
+    #fh = logging.FileHandler("%s/logfiles/log_%s.log"%(folder,str(input_group)))
+    savefolder = "%s/../dataset/raw_files/%s/"%(folder,str(input_group))
+    imagefolder = "%s/../dataset/training/%s/"%(folder,str(input_group))
+
+if not os.path.exists(savefolder):
+    os.mkdir(savefolder)
+if not os.path.exists(imagefolder):
+    os.mkdir(imagefolder)
+for s in ["Scattering", "SRO", "dFF", "metadata"]:
+    if not os.path.exists(imagefolder + s):
+        os.mkdir(imagefolder + s)
+
+
 '''
 TO DISCUSS:
 useful print statements?
@@ -157,7 +186,7 @@ for g in range(3,4):
         mol2 = molecules.iloc[idx2]
 
         # loop over multiple correlations 
-        for conc in range(14): # 992 combinations in the dataset. ~12 different correlation values per molecule pair
+        for conc_counter in range(14): # 992 combinations in the dataset. ~12 different correlation values per molecule pair
             Qmax = np.random.rand()*2 + 6
             #print(Qmax)
             resolution = 256.0
@@ -335,21 +364,38 @@ for g in range(3,4):
             #dFF = np.hstack((dFF_uxw,dFF_uvx,dFF_xvw))
             #SRO = np.hstack((SRO_uxw,SRO_uvx,SRO_xvw))
             #scat = np.hstack((scat_uxw,scat_uvx,scat_xvw))    
-            dFF = dFF_uxw
-            SRO = SRO_uxw
-            scat = scat_uxw
+            #dFF = dFF_uxw
+            #SRO = SRO_uxw
+            #scat = scat_uxw
 
             #plt.imshow(scat[:,0,:].T,cmap = "hot", origin = "lower")
             #plt.colorbar()
             #plt.show()
+            # We want final shape to be 256*256*4
+            # So permute and stack along z (where appropiate)
+            scat = np.moveaxis(scat_uxw, 1, -1)
+            dFF = np.moveaxis(dFF_uxw, 1, -1)
+            SRO = np.moveaxis(SRO_uxw, 1, -1)
             #plt.clf()
 
-            np.save(molcode+"_"+str(conc)+"_dFF.npy", dFF)
-            np.save(molcode+"_"+str(conc)+"_SRO.npy", SRO) 
-            np.save(molcode+"_"+str(conc)+"_scat.npy", scat)  
+            molcode_save = [molcode] * 12
+            Qmax_save = [Qmax] * 12
+            m1_save = [m1] * 12
+            s_save = [s] * 12
+
+            np.save(savefolder + molcode + "_" + str(conc_counter) + "_molcode_metadata.npy", np.asarray(molcode_save))
+            np.save(savefolder + molcode + "_" + str(conc_counter) + "_qmax_metadata.npy", np.asarray(Qmax_save))
+            np.save(savefolder + molcode + "_" + str(conc_counter) + "_m1_metadata.npy", np.asarray(m1_save))
+            np.save(savefolder + molcode + "_" + str(conc_counter) + "_s_metadata.npy", np.asarray(s_save))
+
+            np.save(savefolder + molcode+"_"+str(conc_counter)+"_dFF.npy", dFF)
+            np.save(savefolder + molcode+"_"+str(conc_counter)+"_SRO.npy", SRO) 
+            np.save(savefolder + molcode+"_"+str(conc_counter)+"_scat.npy", scat)  
             #np.save("Paper_SRO.npy", SRO) 
             #np.save("Paper_dFF.npy", dFF) 
             #np.save("Paper_scat.npy", scat) 
+
+        Compile_Dataset.main(molcode=molcode, readfolder=savefolder, savefolder=imagefolder, artifactfolder="%s/../Artefacts/"%folder)
 
 f.close()
 # Plot some graphs
