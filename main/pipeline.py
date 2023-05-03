@@ -16,7 +16,7 @@ import sys
 sys.path.append("/data/lrudden/ML-DiffuseReader/main")
 from prepare_lmdb_input import LMDBDataset
 from argparse import Namespace
-from PIL import Image
+#from PIL import Image
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -31,6 +31,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
+from math import sqrt
+
+import matplotlib.pyplot as plt
 # load in user image (in np format)
 # normalise between -1 and 1
 # Run generator on it
@@ -56,12 +59,13 @@ def read_and_save(filename):
     data = np.load(filename)
     
     # for now, reorder input data to be of the right shape
-    data = data.swapaxes(0, -1)
-    data = data.swapaxes(1, 2)
-
-    data = torch.tensor(normalise(data)).unsqueeze(1)# add channel dimension
-    sample_dFF, _, _ = generator_dFF(data).numpy()
-    sample_SRO, _, _ = generator_SRO(data).numpy()
+    #data = data.swapaxes(0, -1)
+    #data = data.swapaxes(1, 2)
+    
+    data = torch.tensor(normalise(data), dtype=torch.float32).unsqueeze(0) # add channel dimension
+    data = inverse_spread(data)
+    sample_dFF = generator_dFF(data).detach().cpu().numpy()
+    sample_SRO = generator_SRO(data).detach().cpu().numpy()
 
     outname = filename.split(".")[0]
 
@@ -70,6 +74,27 @@ def read_and_save(filename):
     sample_SRO = (sample_SRO + 1) / 2
     np.save(outname + "_dFF.npy", sample_dFF)
     np.save(outname + "_SRO.npy", sample_SRO)
+ 
+    plt.imshow(sample_dFF[0, 0])
+    plt.savefig("dFF_output.png")
+    plt.imshow(sample_SRO[0, 0])
+    plt.savefig("SRO_output.png")
+
+def inverse_spread(data):
+    """
+    Lots of values are grouped up around -1 (or < -0.95), spread them out
+    """
+
+    min_shift_val=0.
+    max_shift_val=2**0.5
+    #shifted_data = torch.clamp((data + 1 + torch.rand(*data.shape)/1000)**0.1, max=1)
+    data = data + 1
+    shifted_data = data.sqrt()
+    min_shift_val = shifted_data.min() # keep record to unnormalise later, max will still be 1
+    renorm_data_tmp = shifted_data - min_shift_val
+    max_shift_val = renorm_data_tmp.max()
+    renorm_data = (renorm_data_tmp / max_shift_val) * 2 - 1
+    return renorm_data
 
 ######### READ ARGUMENTS ########
 
@@ -94,10 +119,14 @@ img_width = opt.img_width
 channels = opt.channels
 generator_loc = opt.generator_loc
 
+device = torch.device("cpu")
+
 # Initialize generators
-generator_dFF = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
-generator_SRO = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
-        
+#generator_dFF = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
+#generator_SRO = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
+generator_dFF = GeneratorUNet(in_channels=channels, out_channels=channels).to(device)
+generator_SRO = GeneratorUNet(in_channels=channels, out_channels=channels).to(device)
+
 # Load a pre-existing network
 generator_dFF.load_state_dict(torch.load("%s/generator_dFF_%d.pth" % (generator_loc, epoch)))
 generator_SRO.load_state_dict(torch.load("%s/generator_SRO_%d.pth" % (generator_loc, epoch)))
