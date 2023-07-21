@@ -1,5 +1,6 @@
 """
 Create the LMDB dataset for DL input
+Staple the non artefact data onto site c
 """
 
 import torch.utils.data as data
@@ -13,19 +14,18 @@ import torchvision.transforms as transforms
 
 def num_samples(dataset, train):
     if dataset == "scattering":
-        # 100 for testing
-        return 146481 if train else 1000 # this number is specific to the number of TM examples we have for training
+        return 198421 if train else 1000 # expanded dataset with symm data
     else:
         raise NotImplementedError('dataset %s is unknown' % dataset)
 
-def staple_image(image0, image1):
+def staple_image(image0, image1, image2):
     """
     Based on two numpy array inputs (image0 and image1), stable the two together
     Ensure the target image is on the right, the conditioned image on the left
     """
-    return np.concatenate((image0, image1), axis=1)
+    return np.concatenate((image0, image1, image2), axis=1)
     
-def read_single_lmdb(image_id=0, lmdb_dir="/data/lrudden/ML-DiffuseReader/dataset/training/train_lmdb_dFF"):
+def read_single_lmdb(image_id=0, lmdb_dir="/path/to/training/data/dataset/training/train_lmdb_dFF"):
     """ Stores a single image to LMDB.
         For testing purposes, return a single image from lmdb
         Parameters:
@@ -59,7 +59,7 @@ class LMDBDataset(data.Dataset):
         if self.train:
             lmdb_path = os.path.join(root)
         else:
-            lmdb_path = os.path.join(root, 'validation.lmdb')
+            lmdb_path = os.path.join(root)#, 'validation.lmdb')
         self.data_lmdb = lmdb.open(lmdb_path, readonly=True, max_readers=1,
                                    lock=False, readahead=False, meminit=False)
         self.is_encoded = is_encoded
@@ -68,9 +68,7 @@ class LMDBDataset(data.Dataset):
 
         with self.data_lmdb.begin(write=False, buffers=True) as txn:
 
-            #data = txn.get(str(index).encode())
             data = txn.get(f"{index:08}".encode())
-            #data = txn.get(f"{index:08}".encode("ascii"))
 
             if self.is_encoded:
                 img = Image.open(io.BytesIO(data))
@@ -80,12 +78,13 @@ class LMDBDataset(data.Dataset):
                 img = img.getimage()                
 
         if self.transform is not None:
-            imgA, imgB = img 
+            imgA, imgB, imgC = img 
             image_A = self.transform(np.array(imgA))
             image_B = self.transform(np.array(imgB))
+            image_C = self.transform(np.array(imgC))
         else:
-            image_A, image_B = img 
-        return {"A": image_A, "B": image_B}
+            image_A, image_B, image_C = img 
+        return {"A": image_A, "B": image_B, "C" : image_C}
 
     def __len__(self):
         return num_samples(self.name, self.train)
@@ -100,23 +99,18 @@ class LMDB_Image:
         self.size = image.shape
         self.image = image.tobytes()
 
-        #TODO need test information also
-
     def getimage(self):
 
         image = self.image #np.frombuffer(self.image, dtype=np.float32)
         image = image.reshape(self.size)
         h, w = self.size 
-        image_A = image[:, : int(w / 2)]
-        image_B = image[:, int(w / 2) :]
-        #image_A = image.crop((0, 0, w / 2, h)) # note w/2 here, in other words, target image needs to be on the right
-        #image_B = image.crop((w / 2, 0, w, h))  
-        #image_A = Image.fromarray(image_A).convert("RGB") #, mode="RGB")
-        #image_B = Image.fromarray(image_B).convert("RGB") #, mode="RGB")
+        image_A = image[:, : int(w / 3)]
+        image_B = image[:, int(w / 3) : 2*int(w / 3)]
+        image_C = image[:, 2*int(w / 3):]
 
-        return image_A, image_B  
+        return image_A, image_B, image_C 
 
-def store_many_lmdb(images, lmdb_dir="/home/lrudden/ML-DiffuseReader/dataset/training/train_lmdb"):
+def store_many_lmdb(images, lmdb_dir="/path/to/training/data/dataset/training/train_lmdb"):
     """ Stores an array of images to LMDB.
         https://realpython.com/storing-images-in-python/#storing-to-lmdb
         Parameters:
@@ -153,29 +147,18 @@ def normalise_data(data):
 
     return data * 255
 
-def read_images(folder: str, tag: str, max_num: int) -> np.array:
-    """
-    Folder, conditional folder location
-    tag is dFF or SRO
-    max_num: number of images in folder (to loop through)
-    """
-
-    # read in order of images
-    images = []
-    # too much data, just use every 5th image for now
-    for n in range(0, max_num+1, 5):
-        image0 = np.array(Image.open(folder + "/Scattering/%i.png"%(n))) # conditional input
-        image1 = np.array(Image.open(folder + "/" + tag + "/%i.png"%(n))) # the dFF or SRO are the target (from the scattering data)
-        images.append(staple_image(image0, image1))
-        if n % 92 == 0:
-            print(">> %.2f completed"%(n * 100 /max_num))
-    return np.asarray(images).astype(np.uint8)
-
-def read_arrays(folder: str, tag: str) -> np.array:
+def read_arrays(folder: str, tag: str, get_metadata=False) -> np.array:
     """
     Folder, conditional folder location of numpy array (post normalisation), it is the base array before Scattering or tag sep
     tag is dFF or SRO
     """
+
+    # create metadata mass folder if requested
+    if get_metadata:
+        molcode = []
+        a = []; b = []; c = []
+        corr = []
+
     # read in essentially random order (depending on what fs.encode decides to do)
     images = []
     afolder = os.fsencode(folder + "/Scattering")
@@ -183,8 +166,20 @@ def read_arrays(folder: str, tag: str) -> np.array:
     for f in dir_files:
         image0 = np.load(folder + "/Scattering/%s_scat.npy"%(f)) # conditional input
         image1 = np.load(folder + "/%s/%s_%s.npy"%(tag, f, tag)) # the dFF or SRO are the target (from the scattering data)
-        images.append(staple_image(image0, image1))
-    return np.concatenate(images, axis=2)
+        image2 = np.load(folder + "/Scattering/%s_scat_clean.npy"%(f)) # non artefact data
+        images.append(staple_image(image0, image1, image2))
+
+        if get_metadata:
+            molcode.append(np.load(folder + "/metadata/%s_molcode.npy"%(f)))
+            a.append(np.load(folder + "/metadata/%s_a.npy"%(f)))
+            b.append(np.load(folder + "/metadata/%s_b.npy"%(f)))
+            c.append(np.load(folder + "/metadata/%s_c.npy"%(f)))
+            corr.append(np.load(folder + "/metadata/%s_corr.npy"%(f)))
+
+    if get_metadata:
+        return np.concatenate(images, axis=2), dir_files, np.concatenate(molcode, axis=0), np.concatenate(a, axis=0), np.concatenate(b, axis=0), np.concatenate(c, axis=0), np.concatenate(corr, axis=0)
+    else:
+        return np.concatenate(images, axis=2), dir_files
 
 if __name__ == "__main__":
 
@@ -192,27 +187,34 @@ if __name__ == "__main__":
     # DiffuseScattering00001.npy, DiffuseScattering00002.npy... DiffuseScattering09999.npy and so on (5 digits)
 
     # load in each group and cat together
+    trainingfolder = "/path/to/training/data/dataset/training/"
+    #trainingfolder = "/path/to/validation/data/validation/" # validationfolder
 
-    trainingfolder = "/scratch/dclw/ML-DiffuseReader/dataset/training/"
-
-    images_dFF = read_arrays(trainingfolder + str(0), "dFF")
-    groups = 5
+    images_dFF, dir_files = read_arrays(trainingfolder + str(0), "dFF")
+    groups = 4 #  5 for training
     for g in range(1, groups):
         loadfolder = trainingfolder + str(g)
-        images_dFF_tmp = read_arrays(loadfolder, "dFF")
+        images_dFF_tmp, dir_files_tmp, molcode, a, b, c, corr = read_arrays(loadfolder, "dFF", get_metadata=True)
         images_dFF = np.concatenate((images_dFF, images_dFF_tmp), axis=2)
+        dir_files = dir_files  + dir_files_tmp
     images_dFF = np.swapaxes(np.swapaxes(images_dFF, -1, 0), 1, 2)
+    #store_many_lmdb(images_dFF, trainingfolder + "val_lmdb_dFF")
     store_many_lmdb(images_dFF, trainingfolder + "train_lmdb_dFF")
+
+    np.save(trainingfolder + "molcodes.npy", molcode) # this should be in the correct order that train dff is saved
+    np.save(trainingfolder + "conc_a.npy", a); np.save(trainingfolder + "conc_b.npy", b); np.save(trainingfolder + "conc_c.npy", c)
+    np.save(trainingfolder + "correlations.npy", corr)
 
     del images_dFF
     del images_dFF_tmp
 
-    images_SRO = read_arrays(trainingfolder + str(0), "SRO")
+    images_SRO, _ = read_arrays(trainingfolder + str(0), "SRO")
     for g in range(1, groups):
         loadfolder = trainingfolder + str(g)
-        images_SRO_tmp = read_arrays(loadfolder, "SRO")
+        images_SRO_tmp, _ = read_arrays(loadfolder, "SRO")
         images_SRO = np.concatenate((images_SRO, images_SRO_tmp), axis=2)
     images_SRO = np.swapaxes(np.swapaxes(images_SRO, -1, 0), 1, 2)
+    #store_many_lmdb(images_SRO, trainingfolder + "val_lmdb_SRO")
     store_many_lmdb(images_SRO, trainingfolder + "train_lmdb_SRO")
 
     # for testing

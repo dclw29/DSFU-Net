@@ -1,7 +1,19 @@
+# Copyright (c) 2022-2023 Lucas Rudden
+#
+# DSFU-Net is free software ;
+# you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation ;
+# either version 2 of the License, or (at your option) any later version.
+# DSFU-Net is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY ;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License along with DSFU-Net ;
+# if not, write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
+#
+# Author : Lucas S. P. Rudden, lucas.s.p.rudden@gmail.com
+
 """
 Adapted from: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
-Include some self-attn into discriminator and generator, and spectral normalisation elsewhere for more stable training
-https://towardsdatascience.com/building-your-own-self-attention-gans-e8c9b9fe8e51
+Includes some redundant self-attn into discriminator and generator, and spectral normalisation elsewhere for more stable training
 """
 
 import torch
@@ -64,7 +76,6 @@ class UNetUp(nn.Module):
     def forward(self, x, skip_input):
         x = self.model(x)
         x = torch.cat((x, skip_input), 1)
-
         return x
 
 class GeneratorUNet(nn.Module):
@@ -77,13 +88,9 @@ class GeneratorUNet(nn.Module):
         self.down4 = UNetDown(256, 512, dropout=0.5)
         self.down5 = UNetDown(512, 512, dropout=0.5)
         self.down6 = UNetDown(512, 512, dropout=0.5, normalize=False)
-        #self.down7 = UNetDown(512, 512, dropout=0.5)
-        #self.down8 = UNetDown(512, 512, normalize=False, dropout=0.5)
 
         # latent space is 4x4
 
-        #self.up1 = UNetUp(512, 512, dropout=0.5)
-        #self.up2 = UNetUp(1024, 512, dropout=0.5)
         self.up3 = UNetUp(512, 512, dropout=0.5) # 1024
         self.up4 = UNetUp(1024, 512, dropout=0.5)
         self.up5 = UNetUp(1024, 256)
@@ -105,11 +112,7 @@ class GeneratorUNet(nn.Module):
         d4 = self.down4(d3)
         d5 = self.down5(d4)
         d6 = self.down6(d5)
-        #d7 = self.down7(d6)
-        #d8 = self.down8(d7)
 
-        #u1 = self.up1(d8, d7)
-        #u2 = self.up2(u1, d6)
         u3 = self.up3(d6, d5)
         u4 = self.up4(u3, d4)
         u5 = self.up5(u4, d3)
@@ -148,6 +151,13 @@ class Discriminator(nn.Module):
         # Concatenate image and condition image by channels to produce input
         img_input = torch.cat((img_A, img_B), 1)
         return self.model(img_input)
+
+###################################################################################
+#
+# The following are NOT necessary for DSFU-Net, but included anyway for interested parties,
+# and because we briefly discuss their results in the supplementals of the article.
+#
+###################################################################################
 
 ##############################
 #        Self-attn block
@@ -262,42 +272,27 @@ class GeneratorUNet_Attn(nn.Module):
         self.noise = GaussianNoise() 
 
         self.down1 = UNetDown(in_channels, 64, normalize=False)
-        #self.attnD1 = Self_Attn(64) # apply at every layer?
         self.down2 = UNetDown(64, 128, spectral_norm=True)
         self.attnD2 = Self_Attn(128) # apply at every layer?
         self.down3 = UNetDown(128, 256, dropout=0.5, spectral_norm=True) 
         self.attnD3 = Self_Attn(256)
         self.down4 = UNetDown(256, 512, dropout=0.5, spectral_norm=True)
         self.attnD4 = Self_Attn(512) 
-        #self.attn_down = Self_Attn(512) # 512 -> 512
 
         self.down5 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
         self.attnD5 = Self_Attn(512)
-        #self.down6 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
         self.down6 = UNetDown(512, 512, normalize=False, dropout=0.5)
-        #self.attnD6 = Self_Attn(512)
-        #self.down7 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
-        #self.attnD7 = Self_Attn(512)
-        #self.down8 = UNetDown(512, 512, normalize=False, dropout=0.5)
 
-        # apply only when input image?
         self.attn = Self_Attn(512)
 
-        #self.up1 = UNetUp(512, 512, dropout=0.5, spectral_norm=True)
-        #self.attnU1 = Self_Attn(1024)
-        #self.up2 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
-        #self.attnU2 = Self_Attn(1024)
-        #self.up3 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
         self.up3 = UNetUp(512, 512, dropout=0.5, spectral_norm=True)
         self.attnU3 = Self_Attn(1024)
         self.up4 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
         self.attnU4 = Self_Attn(1024)
-        #self.attn_up = Self_Attn(1024) # 1024 as we now have skip connections catted on
 
         self.up5 = UNetUp(1024, 256, spectral_norm=True)
         self.attnU5 = Self_Attn(256*2)
         self.up6 = UNetUp(512, 128, spectral_norm=True)
-        #self.attnU6 = Self_Attn(128*2)
         self.up7 = UNetUp(256, 64)
 
         self.final = nn.Sequential(
@@ -308,51 +303,35 @@ class GeneratorUNet_Attn(nn.Module):
         )
 
     def forward(self, x):
-        # use noise to help avoid the artifact problem?
+        # use noise to help avoid weird impact of zeroed zones
         x = self.noise(x)
         # U-Net generator with skip connections from encoder to decoder
         d1 = self.down1(x)
-        #d1_5, _ = self.attnD1(d1)
         d2 = self.down2(d1)
         d2_5, _ = self.attnD2(d2)
         d3 = self.down3(d2_5)
         d3_5, _ = self.attnD3(d3)
         d4 = self.down4(d3_5)
-        #d4_5, _ = self.attn_down(d4) # output attention maps also
         d4_5, _ = self.attnD4(d4)
         d5 = self.down5(d4_5)
         d5_5, _ = self.attnD5(d5)
         d6 = self.down6(d5_5)
-        # don't squeeze image own to 1 pixel with 512 channels?
-        #d6_5, _ = self.attnD6(d6)
-        #d7 = self.down7(d6_5)
-        #d7_5, _ = self.attnD7(d7)
-        #d8 = self.down8(d7_5)
 
-        #s, _ = self.attn(d8)
         s, _ = self.attn(d6)
 
-        #u1 = self.up1(s, d7_5)
-        #u1_5, _ = self.attnU1(u1)
-        #u2 = self.up2(u1_5, d6_5)
-        #u2_5, _ = self.attnU2(u2)
-        #u3 = self.up3(u2_5, d5_5)
         u3 = self.up3(s, d5_5)
         u3_5, _ = self.attnU3(u3)
         u4 = self.up4(u3_5, d4_5)
         u4_5, _ = self.attnU4(u4)
-        #u4_5, _ = self.attn_up(u4)
         u5 = self.up5(u4_5, d3_5)
         u5_5, _ = self.attnU5(u5)
         u6 = self.up6(u5_5, d2_5)
-        #u6_5, _ = self.attnU6(u6)
         u7 = self.up7(u6, d1)
 
-        return self.final(u7) #, _, _
+        return self.final(u7) # the attention maps are in the _ of the UP outputs
 
 #####################################
-# D is too strong, try adding a bit of noise
-# https://www.reddit.com/r/deeplearning/comments/oigdgg/adding_guassian_noise_to_discriminator_layers_in/
+# If D too strong, try adding a bit of noise
 # https://github.com/ShivamShrirao/facegan_pytorch/blob/main/facegan_pytorch.ipynb
 ####################################
 
@@ -389,10 +368,8 @@ class Discriminator_Attn(nn.Module):
             layers = [GaussianNoise(self.std, self.std_decay_rate)]
 
             if spectral_norm:
-                #layers = [SpectralNorm(nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1))]
                 layers.append(SpectralNorm(nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)))
             else:
-                #layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
                 layers.append(nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1))
             if normalization:
                 layers.append(nn.InstanceNorm2d(out_filters))
@@ -408,7 +385,6 @@ class Discriminator_Attn(nn.Module):
             *discriminator_block(256, 512, spectral_norm=True, attention=True)
         )
 
-        #self.attn = Self_Attn(512)
 
         self.model1 = nn.Sequential(
             GaussianNoise(self.std, self.std_decay_rate), # try gaussian noise here?
@@ -416,23 +392,19 @@ class Discriminator_Attn(nn.Module):
             nn.Conv2d(512, 1, 4, padding=1, bias=False)
         )
 
-        # try dropout?
-
     def forward(self, img_A, img_B):
         # Concatenate image and condition image by channels to produce input
         img_input = torch.cat((img_A, img_B), 1)
         out0 = self.model0(img_input)
-        #attn, a1 = self.attn(out0)
         out1 = self.model1(out0)
         return out1
 
 ########################################
-##### Try including some noise similar to
-##### Dynamic-Pix2Pix: Noise Injected cGAN for Modeling Input and Target Domain Joint Distributions with Limited Training Data
-##### Need a bottle neck module (to stop noise correlations being learnt), and a dynamic switching GAN dependent on whether noise or image is being input
+# Dynamic-Pix2Pix: Noise Injected cGAN for Modeling Input and Target Domain Joint Distributions with Limited Training Data
+# Need a bottle neck module (to stop noise correlations being learnt), and a dynamic switching GAN dependent on whether noise or image is being input
+# Note that no code accompanied this paper, so this is a complete guess on my part
 ########################################
 
-# The bottleneck is not actually avaible, so this is largely a guess
 class UNET_BottleNeck(nn.Module):
     def __init__(self, in_channel, out_channel):
         super().__init__()
@@ -459,14 +431,10 @@ class GeneratorUNet_BottleNeck(nn.Module):
         self.down4 = UNetDown(256, 512, dropout=0.5)
         self.down5 = UNetDown(512, 512, dropout=0.5)
         self.down6 = UNetDown(512, 512, dropout=0.5, normalize=False)
-        #self.down7 = UNetDown(512, 512, dropout=0.5)
-        #self.down8 = UNetDown(512, 512, normalize=False, dropout=0.5)
 
         self.bottleneck = UNET_BottleNeck(512, 512) # bottleneck noise (only apply when noise input)
         self.upsample = nn.Upsample(scale_factor=64,  mode='bilinear', align_corners=True) #  multiply noise (4 * 4) to 256 size
 
-        #self.up1 = UNetUp(512, 512, dropout=0.5)
-        #self.up2 = UNetUp(1024, 512, dropout=0.5)
         self.up3 = UNetUp(512, 512, dropout=0.5)
         self.up4 = UNetUp(1024, 512, dropout=0.5)
         self.up5 = UNetUp(1024, 256)
@@ -496,8 +464,6 @@ class GeneratorUNet_BottleNeck(nn.Module):
                 d4 = self.down4(d3)
                 d5 = self.down5(d4)
                 d6 = self.down6(d5)
-                #d7 = self.down7(d6)
-                #d8 = self.down8(d7)
                 d6 = self.bottleneck(d6)
         else:
             x[x==-1.] = noise[x==-1.]
@@ -509,11 +475,7 @@ class GeneratorUNet_BottleNeck(nn.Module):
             d4 = self.down4(d3)
             d5 = self.down5(d4)
             d6 = self.down6(d5)
-            #d7 = self.down7(d6)
-            #d8 = self.down8(d7)
 
-        #u1 = self.up1(d8, d7)
-        #u2 = self.up2(u1, d6)
         u3 = self.up3(d6, d5)
         u4 = self.up4(u3, d4)
         u5 = self.up5(u4, d3)
@@ -527,7 +489,7 @@ class GeneratorUNet_BottleNeck(nn.Module):
 
 
 #########################################
-# Generator with self-attn and spectral norm
+# Generator with self-attn and spectral norm and dynamic bottleneck (all of the fanciness from above)
 #########################################
 
 class GeneratorUNet_Attn_Bottleneck(nn.Module):
@@ -535,45 +497,30 @@ class GeneratorUNet_Attn_Bottleneck(nn.Module):
         super(GeneratorUNet_Attn_Bottleneck, self).__init__()
 
         self.down1 = UNetDown(in_channels, 64, normalize=False)
-        #self.attnD1 = Self_Attn(64) # apply at every layer?
         self.down2 = UNetDown(64, 128, spectral_norm=True)
         self.attnD2 = Self_Attn(128) # apply at every layer?
         self.down3 = UNetDown(128, 256, dropout=0.5, spectral_norm=True)
         self.attnD3 = Self_Attn(256)
         self.down4 = UNetDown(256, 512, dropout=0.5, spectral_norm=True)
         self.attnD4 = Self_Attn(512)
-        #self.attn_down = Self_Attn(512) # 512 -> 512
 
         self.down5 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
         self.attnD5 = Self_Attn(512)
-        #self.down6 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
         self.down6 = UNetDown(512, 512, normalize=False, dropout=0.5)
-        #self.attnD6 = Self_Attn(512)
-        #self.down7 = UNetDown(512, 512, dropout=0.5, spectral_norm=True)
-        #self.attnD7 = Self_Attn(512)
-        #self.down8 = UNetDown(512, 512, normalize=False, dropout=0.5)
 
         self.bottleneck = UNET_BottleNeck(512, 512) # bottleneck noise (only apply when noise input)
         self.upsample = nn.Upsample(scale_factor=64,  mode='bilinear', align_corners=True) #  multiply noise (4 * 4) to 256 size
 
-        # apply only when input image?
         self.attn = Self_Attn(512)
 
-        #self.up1 = UNetUp(512, 512, dropout=0.5, spectral_norm=True)
-        #self.attnU1 = Self_Attn(1024)
-        #self.up2 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
-        #self.attnU2 = Self_Attn(1024)
-        #self.up3 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
         self.up3 = UNetUp(512, 512, dropout=0.5, spectral_norm=True)
         self.attnU3 = Self_Attn(1024)
         self.up4 = UNetUp(1024, 512, dropout=0.5, spectral_norm=True)
         self.attnU4 = Self_Attn(1024)
-        #self.attn_up = Self_Attn(1024) # 1024 as we now have skip connections catted on
 
         self.up5 = UNetUp(1024, 256, spectral_norm=True)
         self.attnU5 = Self_Attn(256*2)
         self.up6 = UNetUp(512, 128, spectral_norm=True)
-        #self.attnU6 = Self_Attn(128*2)
         self.up7 = UNetUp(256, 64)
 
         self.final = nn.Sequential(
@@ -594,54 +541,37 @@ class GeneratorUNet_Attn_Bottleneck(nn.Module):
             with torch.no_grad():
                 # U-Net generator with skip connections from encoder to decoder
                 d1 = self.down1(noise)
-                #d1_5, _ = self.attnD1(d1)
                 d2 = self.down2(d1)
                 d2_5, _ = self.attnD2(d2)
                 d3 = self.down3(d2_5)
                 d3_5, _ = self.attnD3(d3)
                 d4 = self.down4(d3_5)
-                #d4_5, _ = self.attn_down(d4) # output attention maps also
                 d4_5, _ = self.attnD4(d4)
                 d5 = self.down5(d4_5)
                 d5_5, _ = self.attnD5(d5)
                 d6 = self.down6(d5_5)
-                # don't squeeze image own to 1 pixel with 512 channels?
-                #d6_5, _ = self.attnD6(d6)
-                #d7 = self.down7(d6_5)
-                #d7_5, _ = self.attnD7(d7)
-                #d8 = self.down8(d7_5)
                 d6 = self.bottleneck(d6)
         else:
                 d1 = self.down1(x)
-                #d1_5, _ = self.attnD1(d1)
                 d2 = self.down2(d1)
                 d2_5, _ = self.attnD2(d2)
                 d3 = self.down3(d2_5)
                 d3_5, _ = self.attnD3(d3)
                 d4 = self.down4(d3_5)
-                #d4_5, _ = self.attn_down(d4) # output attention maps also
                 d4_5, _ = self.attnD4(d4)
                 d5 = self.down5(d4_5)
                 d5_5, _ = self.attnD5(d5)
                 d6 = self.down6(d5_5)
 
-        #s, _ = self.attn(d8)
-        s, _ = self.attn(d6)
+        s, _ = self.attn(d6) #  run this on noise?
 
-        #u1 = self.up1(s, d7_5)
-        #u1_5, _ = self.attnU1(u1)
-        #u2 = self.up2(u1_5, d6_5)
-        #u2_5, _ = self.attnU2(u2)
-        #u3 = self.up3(u2_5, d5_5)
         u3 = self.up3(s, d5_5)
         u3_5, _ = self.attnU3(u3)
         u4 = self.up4(u3_5, d4_5)
         u4_5, _ = self.attnU4(u4)
-        #u4_5, _ = self.attn_up(u4)
         u5 = self.up5(u4_5, d3_5)
         u5_5, _ = self.attnU5(u5)
         u6 = self.up6(u5_5, d2_5)
-        #u6_5, _ = self.attnU6(u6)
         u7 = self.up7(u6, d1)
 
         if noise_input:

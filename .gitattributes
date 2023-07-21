@@ -1,2 +1,4 @@
-RUN/saved_models/ATTN_ALL_LAYER/generator_dFF_8.pth filter=lfs diff=lfs merge=lfs -text
-RUN/saved_models/ATTN_ALL_LAYER/generator_SRO_8.pth filter=lfs diff=lfs merge=lfs -text
+models/discriminator_dFF_200.pth filter=lfs diff=lfs merge=lfs -text
+models/discriminator_SRO_200.pth filter=lfs diff=lfs merge=lfs -text
+models/generator_dFF_200.pth filter=lfs diff=lfs merge=lfs -text
+models/generator_SRO_200.pth filter=lfs diff=lfs merge=lfs -text

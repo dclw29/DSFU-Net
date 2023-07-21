@@ -1,5 +1,18 @@
+# Copyright (c) 2022-2023 Lucas Rudden
+#
+# DSFU-Net is free software ;
+# you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation ;
+# either version 2 of the License, or (at your option) any later version.
+# DSFU-Net is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY ;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License along with DSFU-Net ;
+# if not, write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
+#
+# Author : Lucas S. P. Rudden, lucas.s.p.rudden@gmail.com
+
 """
-Test our PIX2PIX gan network based on validation dataset
+Pipeline to run our DSFU-Net on desired samples
 """
 
 import argparse
@@ -10,17 +23,12 @@ import itertools
 import time
 import datetime
 import sys
-#file_path = os.path.realpath(__file__)
-#file_loc = file_path[:-14]
-#sys.path.append(file_loc)
-sys.path.append("/data/lrudden/ML-DiffuseReader/main")
-from prepare_lmdb_input import LMDBDataset
+curr_dir = os.getcwd()
+sys.path.append(curr_dir)
 from argparse import Namespace
-#from PIL import Image
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
-
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torch.autograd import Variable
@@ -34,12 +42,16 @@ import torch
 from math import sqrt
 
 import matplotlib.pyplot as plt
-# load in user image (in np format)
-# normalise between -1 and 1
-# Run generator on it
-# save output as numpy array between 0 and 1
 
-# add optional function that loops through folder if requested
+"""
+Process:
+Load in user image (in np format)
+Normalise between -1 and 1
+Run generator on it
+Save output as numpy array between 0 and 1
+
+Optional function that loops through folder if requested
+"""
 
 def normalise(data):
     """
@@ -51,19 +63,29 @@ def normalise(data):
 
     return ((data / data.max()) * 2) - 1
 
-def read_and_save(filename):
+def read_and_save(filename, device, no_norm=False):
     """
     Read a filename, generate new data, and save
     """
 
     data = np.load(filename)
     
-    # for now, reorder input data to be of the right shape
-    #data = data.swapaxes(0, -1)
-    #data = data.swapaxes(1, 2)
-    
-    data = torch.tensor(normalise(data), dtype=torch.float32).unsqueeze(0) # add channel dimension
+    if not no_norm:
+        data = torch.tensor(normalise(data), dtype=torch.float32).to(device) # add channel dimension
+    else:
+        data = torch.tensor(data, dtype=torch.float32).to(device)
+
+    if data.shape == (256, 256):
+        data = data.unsqueeze(0).unsqueeze(0)
+    elif data.shape == (1, 256, 256):
+        data = data.unsqueeze(0)
+    elif data.shape == (1, 1, 256, 256):
+        pass
+    else:
+        raise Exception("Data input shape of ", data.shape, " not recognised! Please reshape to 256x256")
+
     data = inverse_spread(data)
+
     sample_dFF = generator_dFF(data).detach().cpu().numpy()
     sample_SRO = generator_SRO(data).detach().cpu().numpy()
 
@@ -76,9 +98,9 @@ def read_and_save(filename):
     np.save(outname + "_SRO.npy", sample_SRO)
  
     plt.imshow(sample_dFF[0, 0])
-    plt.savefig("dFF_output.png")
+    plt.savefig("%s_dFF_output.png"%(outname))
     plt.imshow(sample_SRO[0, 0])
-    plt.savefig("SRO_output.png")
+    plt.savefig("%s_SRO_output.png"%(outname))
 
 def inverse_spread(data):
     """
@@ -87,7 +109,6 @@ def inverse_spread(data):
 
     min_shift_val=0.
     max_shift_val=2**0.5
-    #shifted_data = torch.clamp((data + 1 + torch.rand(*data.shape)/1000)**0.1, max=1)
     data = data + 1
     shifted_data = data.sqrt()
     min_shift_val = shifted_data.min() # keep record to unnormalise later, max will still be 1
@@ -99,14 +120,16 @@ def inverse_spread(data):
 ######### READ ARGUMENTS ########
 
 parser = argparse.ArgumentParser()
-# default will be final value we put on github, but in theory people can train for longer, use their own model etc.
-parser.add_argument("--epoch", type=int, default=12, help="Epoch to read generator model from")
-parser.add_argument("--img_height", type=int, default=256, help="size of image height")
-parser.add_argument("--img_width", type=int, default=256, help="size of image width")
-parser.add_argument("--channels", type=int, default=1, help="number of image channels")
-parser.add_argument("--filename", type=str, default="default.npy", help="Filename of input numpy scattering data to be converted. Not read if using folder mode")
+# default will be final value we put on GitHub, but in theory people can train for longer, use their own model etc.
+parser.add_argument("--epoch", type=int, default=200, help="Epoch to read generator model from. Default is 200 (corresponding to saved models).")
+parser.add_argument("--img_height", type=int, default=256, help="size of image height (default is 256). Can only be changed if you retrain the network.")
+parser.add_argument("--img_width", type=int, default=256, help="size of image width (default is 256). Can only be changed if you retrain the network.")
+parser.add_argument("--channels", type=int, default=1, help="Number of channels in input image. (default is 1). Can only be changed if you retrain the network.")
+parser.add_argument("--filename", type=str, default="default.npy", help="Filename of input numpy scattering data to be converted. Not read if using folder mode. Default is default.npy")
 parser.add_argument("--folder", type=str, default="", help="If specified location, pipeline will instead read and convert all npy arrays in this folder. Will crash if data is not scattering input")
-parser.add_argument("--generator_loc", type=str, default="../models/", help="Specify the location of the generator pytorch models to load in")
+parser.add_argument("--generator_loc", type=str, default="%s/../models/"%curr_dir, help="Specify the location of the generator pytorch models to load in. Default is the ../models/ folder containing the saved models.")
+parser.add_argument("--device", type=str, default="cpu", help="What device to run the code on? Default is cpu, but could replace with gpu:0 depending on your hardware.")
+parser.add_argument("--no_norm", action='store_true', help="Don't normalise the input data between -1 and 1. Note, if you are running the demo (or have already normalised), use this!")
 
 opt = parser.parse_args()
 
@@ -118,25 +141,24 @@ img_height = opt.img_height
 img_width = opt.img_width
 channels = opt.channels
 generator_loc = opt.generator_loc
+gpu = opt.device
+no_norm = opt.no_norm
 
-device = torch.device("cpu")
+device = torch.device(gpu)
 
 # Initialize generators
-#generator_dFF = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
-#generator_SRO = GeneratorUNet_Attn(in_channels=channels, out_channels=channels)
 generator_dFF = GeneratorUNet(in_channels=channels, out_channels=channels).to(device)
 generator_SRO = GeneratorUNet(in_channels=channels, out_channels=channels).to(device)
 
 # Load a pre-existing network
-generator_dFF.load_state_dict(torch.load("%s/generator_dFF_%d.pth" % (generator_loc, epoch)))
-generator_SRO.load_state_dict(torch.load("%s/generator_SRO_%d.pth" % (generator_loc, epoch)))
-#TODO check normalisation in normal input (0.5 input tensor) vs what you are doing - why even do it, we could apply our own normalisation prior to input
+generator_dFF.load_state_dict(torch.load("%s/generator_dFF_%d.pth" % (generator_loc, epoch), map_location=device))
+generator_SRO.load_state_dict(torch.load("%s/generator_SRO_%d.pth" % (generator_loc, epoch), map_location=device))
 
 # load in data
 if len(folder) == 0:
-    read_and_save(filename)
+    read_and_save(filename, device, no_norm)
 else:
     read_folder = os.fsencode(folder)
     files = [str(os.fsdecode(x)) for x in os.listdir(read_folder) if os.fsdecode(x).endswith(".npy")]
     for filename in files:
-        read_and_save(filename)
+        read_and_save(filename, device, no_norm)
