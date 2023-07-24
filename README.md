@@ -2,7 +2,7 @@
 
 Contained within this repository you will find models and processing scripts relating to DSFU-Net, a generative deep learning method developed to take a plane of diffuse scattering input and factorise it into the contributions from molecular form factor and chemical short-range order. It is designed for single crystal systems exhibiting binary substitutional disorder, with one disordered site per unit cell. While it may be useful for other systems, the interpretation of the separated components is not clear outside of these assumptions. For more information on the limitations to check whether DSFU-Net is appropiate for your data, please refer to the paper given below.
 
-We describe the various scripts and models present within this repo below as well as a demo on one of the validation examples such that you can see how it works with a working example. Please note this repo does not contain the training data as it is 100s of GB, but it does include the means to recreate. 
+We describe the various scripts and models present within this repo below as well as a demo on one of the validation examples such that you can see how it works with a working example. Please note this repo does not contain the training data as it is 100s of GB, but it does include the means to recreate it. 
 
 # Citation
 
@@ -16,7 +16,7 @@ Paper reference is TBC
 
 DSFU-Net is written entirely in Python and requires various packages, including PyTorch, to run. We describe below the necessary packages and how you might install it in a safe manner on your system.
 
-DSFU-Net should worth with the most updated version of Python (as of July 2023), but we will assume a Python 3.10 to keep it compatible with the work described in our paper. We recommend creating a safe conda environment (https://docs.conda.io/projects/conda/en/latest/index.html) to work in. For example,
+DSFU-Net should work with the most updated version of Python (as of July 2023), but we will assume you are using Python 3.10 to keep it compatible with the work described in our paper. We recommend creating a safe conda environment (https://docs.conda.io/projects/conda/en/latest/index.html) to work in. For example,
 
 ```
 conda create --name py310 python=3.10
@@ -64,7 +64,7 @@ pip install pillow matplotlib
 pip install torch torchvision torchaudio
 ```
 
-With this latter install, we are assuming you have a GPU onboard that PyTorch can recognise and harness when running your data through the network. A GPU is not necessary to run DSFU-Net, but significantly speeds up any runtimes, and any big data analysis/automated beamline workflow will need a GPU installed. You can install a CPU compatible version of PyTorch with:
+With the PyTorch pip installation, we are assuming you have a GPU onboard that PyTorch can recognise and harness when running your data through the network. A GPU is not necessary to run DSFU-Net, but significantly speeds up any runtimes, and any big data analysis/automated beamline workflow will need a GPU installed. You can install a CPU compatible version of PyTorch with:
 
 ```
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -97,7 +97,7 @@ to automatically run the test0.npy example in the INPUT/ folder. This will place
 
 We also provide the means to generate your own training data using either the precompiled parameters we discuss in the paper or your own, and then retrain the network. This could be useful, for example, if you want to change the shape of data to a different resolution (although note that interpolation to 256x256 is likely a simpler idea).
 
-The bulk of scripts needed for dataset generation are in /dataset_generation/, though the prepare_lmdb_input in /main/ is also needed. The main scripts of interest are the GenerateTrainingData, which differ as follows:
+The bulk of scripts needed for dataset generation are in /dataset_generation/, though the prepare_lmdb_input.py script in /main/ is also needed. The main scripts of interest are the GenerateTrainingData, which differ as follows:
 
 (1) GenerateTrainingData - the main dataset generation method (see paper for details) which pulls molecules from the meta_library files and uses the SRO parameters in the CorrelationGeneration folder to generate data. The lists of SRO parameters were obtained from Monte Carlo simulations.
 
@@ -107,7 +107,7 @@ The bulk of scripts needed for dataset generation are in /dataset_generation/, t
 
 The workflow discussed in the Methods of our paper involving this generation is all automated. The only changes you should have to make are:
 
-- Update the folder locations, i.e. where do you want the training data saved
+- Update the folder locations, i.e. where do you want the training data saved? We have designated areas you will need to update in the Compile_Dataset/GenerateTrainingData scripts with a "/path/to/" root string.
 - Choose whether to use the Tetragonal/Hexagonal or base GenerateTrainingData scripts, which will need corresponding edits of the Compile_Dataset script (see comments within for more details). 
 
 You will also need to unzip the Artefacts folder and put the correct location where specified in the Compile_Dataset script.
