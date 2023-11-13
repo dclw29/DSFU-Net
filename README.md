@@ -8,9 +8,7 @@ We describe the various scripts and models present within this repo below as wel
 
 If this work proves useful to you, please cite us with:
 
-Fuller and Rudden, DSFU-Net for unravelling diffuse scattering components, https://github.com/dclw29/DSFU-Net
-
-Paper reference is TBC
+Fuller, C.A. & Rudden, L.S.P., _IUCrJ_, **11**, 2024 (https://doi.org/10.1107/S2052252523009521)
 
 # Installation
 
