@@ -53,17 +53,23 @@ Save output as numpy array between 0 and 1
 Optional function that loops through folder if requested
 """
 
-def normalise(data):
+def normalise(data, zero_shift=False):
     """
     Normalise data to between -1 and 1 for network input
+    Input data should ideally contain no negative values, but that may not be true...
+    :params data: raw data to input
+    :params zero_shift: If False, all values less than 0 will be set to zero. If True, data is shifted forwards by the minimum value that is less than zero
     """
-    # in case input data has nan or -1 (for artefacts), which won't be in actual scattering input, set to zero first.
-    data[data == -1] = 0
+    # in case input data has nan (for artefacts) or is less than zero, which won't be in actual scattering input, set to zero first.
     data[np.isnan(data)] = 0
+    if zero_shift:
+        data += -data.min()
+    else:
+        data[data < 0] = 0
 
     return ((data / data.max()) * 2) - 1
 
-def read_and_save(filename, device, no_norm=False):
+def read_and_save(filename, device, no_norm=False, zero_shift=False):
     """
     Read a filename, generate new data, and save
     """
@@ -71,7 +77,7 @@ def read_and_save(filename, device, no_norm=False):
     data = np.load(filename)
     
     if not no_norm:
-        data = torch.tensor(normalise(data), dtype=torch.float32).to(device) # add channel dimension
+        data = torch.tensor(normalise(data, zero_shift), dtype=torch.float32).to(device) # add channel dimension
     else:
         data = torch.tensor(data, dtype=torch.float32).to(device)
 
@@ -129,7 +135,8 @@ parser.add_argument("--filename", type=str, default="default.npy", help="Filenam
 parser.add_argument("--folder", type=str, default="", help="If specified location, pipeline will instead read and convert all npy arrays in this folder. Will crash if data is not scattering input")
 parser.add_argument("--generator_loc", type=str, default="%s/../models/"%curr_dir, help="Specify the location of the generator pytorch models to load in. Default is the ../models/ folder containing the saved models.")
 parser.add_argument("--device", type=str, default="cpu", help="What device to run the code on? Default is cpu, but could replace with gpu:0 depending on your hardware.")
-parser.add_argument("--no_norm", action='store_true', help="Don't normalise the input data between -1 and 1. Note, if you are running the demo (or have already normalised), use this!")
+parser.add_argument("--no_norm", default=False, action='store_true', help="Don't normalise the input data between -1 and 1. Note, if you are running the demo (or have already normalised), use this!")
+parser.add_argument("--zero_shift", default=False, action='store_true', help="Ideally there should be no negative values in your input. But if there is, when normalising, shift all values by the most negative upwards. If not included, all negative values are set to zero by default.")
 
 opt = parser.parse_args()
 
@@ -143,6 +150,7 @@ channels = opt.channels
 generator_loc = opt.generator_loc
 gpu = opt.device
 no_norm = opt.no_norm
+zero_shift = opt.zero_shift
 
 device = torch.device(gpu)
 
@@ -156,7 +164,7 @@ generator_SRO.load_state_dict(torch.load("%s/generator_SRO_%d.pth" % (generator_
 
 # load in data
 if len(folder) == 0:
-    read_and_save(filename, device, no_norm)
+    read_and_save(filename, device, no_norm, zero_shift)
 else:
     read_folder = os.fsencode(folder)
     files = [str(os.fsdecode(x)) for x in os.listdir(read_folder) if os.fsdecode(x).endswith(".npy")]
